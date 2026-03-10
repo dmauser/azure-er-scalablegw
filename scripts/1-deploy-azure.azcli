@@ -5,8 +5,8 @@
 # Usage: bash scripts/1-deploy-azure.azcli
 #
 # This script:
-#   1. Generates a strong admin password and stores it in Key Vault
-#   2. Deploys Hub+Spoke VNets, VMs (no public IP), Bastion, ER Gateway (ErGw1AZ)
+#   1. Deploys Hub+Spoke VNets, VMs (no public IP), Bastion, ER Gateway (ErGw1AZ)
+#      (admin password is auto-generated inside Bicep and stored in Key Vault)
 #   3. Creates the ExpressRoute Circuit (Megaport / Chicago)
 #   4. Waits for provider provisioning (requires manual Megaport configuration)
 #   5. Creates the ER connection between the circuit and the gateway
@@ -14,9 +14,20 @@
 
 set -euo pipefail
 
+# ─── Prompt for Resource Group and Region (with defaults) ────────────────────
+echo ""
+read -r -p "Resource Group name [lab-er-scale]: " rg_input
+rg="${rg_input:-lab-er-scale}"
+
+read -r -p "Azure region        [westus3]: " location_input
+location="${location_input:-westus3}"
+
+echo ""
+echo "  Resource Group : $rg"
+echo "  Azure Region   : $location"
+echo ""
+
 # ─── Parameters ──────────────────────────────────────────────────────────────
-rg=lab-er-scale           # Resource Group name
-location=westus3          # Azure region
 hubName=az-hub
 spoke1Name=az-spk1
 spoke2Name=az-spk2
@@ -28,24 +39,9 @@ ername=er-lab-circuit     # ExpressRoute Circuit name
 cxlocation="Chicago"      # ExpressRoute peering location
 provider=Megaport         # ExpressRoute provider
 
-# ─── Generate a Strong Admin Password ────────────────────────────────────────
-echo ""
-echo "=== Generating admin password ==="
-adminPassword=$(python3 -c "
-import secrets, string
-chars = string.ascii_letters + string.digits + '!@#\$%^&*()'
-while True:
-    pwd = ''.join(secrets.choice(chars) for _ in range(20))
-    if (any(c.isupper() for c in pwd) and
-        any(c.islower() for c in pwd) and
-        any(c.isdigit() for c in pwd) and
-        any(c in '!@#\$%^&*()' for c in pwd)):
-        print(pwd)
-        break
-")
-echo "Admin password generated (will be stored in Key Vault)."
-
 # ─── Get Deployer Object ID (for Key Vault access policy) ────────────────────
+# The password is auto-generated inside Bicep and stored in Key Vault.
+# We only need the deployer Object ID so the access policy is set correctly.
 echo ""
 echo "=== Retrieving deployer identity ==="
 deployerObjectId=$(az ad signed-in-user show --query id -o tsv 2>/dev/null || \
@@ -71,7 +67,6 @@ deploymentOutputs=$(az deployment group create \
     --template-file "bicep/main.bicep" \
     --parameters "bicep/main.bicepparam" \
     --parameters \
-        adminPassword="$adminPassword" \
         deployerObjectId="$deployerObjectId" \
         hubName="$hubName" \
         spoke1Name="$spoke1Name" \

@@ -7,7 +7,8 @@ param kvName string
 param adminUsername string
 @secure()
 param adminPassword string
-param deployerObjectId string
+@description('Object ID of the deploying principal. Leave empty to skip access policy.')
+param deployerObjectId string = ''
 
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: kvName
@@ -23,7 +24,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     softDeleteRetentionInDays: 7
     enabledForDeployment: true
     enabledForTemplateDeployment: true
-    accessPolicies: [
+    accessPolicies: empty(deployerObjectId) ? [] : [
       {
         tenantId: subscription().tenantId
         objectId: deployerObjectId

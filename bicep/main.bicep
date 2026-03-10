@@ -17,17 +17,17 @@ param spoke2Name string = 'az-spk2'
 @description('VM administrator username.')
 param adminUsername string = 'azureuser'
 
-@description('VM administrator password. Must be 12-72 chars with uppercase, lowercase, digit, and special character.')
+@description('VM administrator password. Auto-generated per deployment if not supplied. Stored securely in Key Vault — never output by this template.')
 @secure()
 @minLength(12)
 @maxLength(72)
-param adminPassword string
+param adminPassword string = '${uniqueString(resourceGroup().id, deployment().name)}Az1!'
 
 @description('Virtual machine size.')
 param vmSize string = 'Standard_DS1_v2'
 
-@description('Object ID of the principal (user or service principal) deploying this template. Used for Key Vault access policy.')
-param deployerObjectId string
+@description('Object ID of the principal deploying this template. Used for Key Vault access policy. Omit to skip access policy (add manually later).')
+param deployerObjectId string = ''
 
 @description('Key Vault name. Must be globally unique, 3-24 alphanumeric/hyphen chars, starting with a letter.')
 param kvName string = 'kv-er-${take(uniqueString(resourceGroup().id), 8)}'
