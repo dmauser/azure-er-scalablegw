@@ -31,7 +31,7 @@ A common enterprise design uses **two ExpressRoute circuits for maximum resilien
 │  Maximum Resiliency Design (2 × ER Circuits, 10 Gbps each)  │
 │                                                             │
 │  ER Circuit A ──┐                                           │
-│   (10 Gbps)     ├──► ErGw3AZ (max 10 Gbps) ──► Azure VNets │  ← bottlenecked
+│   (10 Gbps)     ├──► ErGw3AZ (max 10 Gbps) ──► Azure VNets  │  ← bottlenecked
 │  ER Circuit B ──┘                                           │
 │   (10 Gbps)                                                 │
 └─────────────────────────────────────────────────────────────┘
@@ -40,7 +40,7 @@ A common enterprise design uses **two ExpressRoute circuits for maximum resilien
 │  Same Design with ErGwScale (20+ scale units)               │
 │                                                             │
 │  ER Circuit A ──┐                                           │
-│   (10 Gbps)     ├──► ErGwScale (20 Gbps+) ──► Azure VNets  │  ← full throughput
+│   (10 Gbps)     ├──► ErGwScale (20 Gbps+) ──► Azure VNets   │  ← full throughput
 │  ER Circuit B ──┘                                           │
 │   (10 Gbps)                                                 │
 └─────────────────────────────────────────────────────────────┘
@@ -91,6 +91,28 @@ Consider upgrading to ErGwScale if any of these apply:
 - You want **auto-scaling** to handle burst workloads without pre-provisioning
 - You want to **consolidate** multiple ER gateways into a single scalable gateway
 - You want a **future-proof** gateway that doesn't require disruptive SKU upgrades
+
+### Upgrade Considerations and Caveats
+
+Not all upgrade paths are equal. Before proceeding, review the following:
+
+| Scenario | Disruptive? | Notes |
+|----------|-------------|-------|
+| Any AZ SKU → **ErGwScale** | **No** | In-place, live migration; existing connections stay up |
+| **ErGwScale** → lower AZ SKU (downgrade) | **Yes** | Downgrades are not supported in-place; requires gateway recreation |
+| **Non-AZ SKU** (e.g., Standard, HighPerf, UltraPerf) → ErGwScale | **Yes — migration required** | Non-AZ gateways must first be migrated to an AZ-aware SKU or recreated |
+| ErGw1AZ / ErGw2AZ → ErGw3AZ (legacy AZ upgrades) | Varies | Supported but may cause brief BGP flap; ErGwScale is the preferred target |
+
+> **Non-AZ to AZ migration:** If your current gateway uses a legacy non-zone-redundant SKU (Standard, HighPerf, UltraPerf), you cannot do a direct in-place upgrade to ErGwScale. A **gateway migration** is required, which involves deploying a new gateway and re-establishing connections. Plan for a maintenance window.
+
+> **Downgrade warning:** Once upgraded to ErGwScale, downgrading to a lower SKU (e.g., ErGw1AZ) is **not supported as an in-place operation**. If a rollback is needed, the gateway must be deleted and recreated.
+
+For the latest supported upgrade paths, SKU restrictions, and migration procedures, always consult the official Microsoft documentation:
+
+- 📄 [Upgrade an ExpressRoute gateway to ErGwScale](https://learn.microsoft.com/azure/expressroute/expressroute-howto-gateway-migration-portal)
+- 📄 [About ExpressRoute virtual network gateways — SKUs](https://learn.microsoft.com/azure/expressroute/expressroute-about-virtual-network-gateways#gwsku)
+- 📄 [Migrate to availability zone-enabled ExpressRoute virtual network gateways](https://learn.microsoft.com/azure/expressroute/expressroute-howto-gateway-migration-portal)
+- 📄 [Configure FastPath for ExpressRoute](https://learn.microsoft.com/azure/expressroute/expressroute-howto-linkvnet-arm#configure-expressroute-fastpath)
 
 ---
 
