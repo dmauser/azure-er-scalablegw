@@ -7,36 +7,9 @@ This lab demonstrates how to upgrade an existing Azure ExpressRoute Gateway from
 
 ## Architecture
 
-```mermaid
-graph LR
-    subgraph OnPrem["On-Premises (GCP)\n192.168.0.0/24"]
-        GCPVM[GCP VM]
-    end
+![Architecture Diagram](diagrams/architecture.svg)
 
-    ERCircuit([ExpressRoute Circuit\nMegaport])
-
-    subgraph Hub["Hub VNet — 10.0.0.0/24"]
-        ERGW[ER Gateway\nErGw1AZ → ErGwScale]
-        Bastion[Azure Bastion]
-        HubVM[Hub VM]
-    end
-
-    subgraph Spoke1["az-spk1 — 10.0.1.0/24"]
-        Spk1VM[Spoke1 VM]
-    end
-
-    subgraph Spoke2["az-spk2 — 10.0.2.0/24"]
-        Spk2VM[Spoke2 VM]
-    end
-
-    GCPVM -->|ExpressRoute| ERCircuit
-    ERCircuit -->|Private Peering| ERGW
-    ERGW <-->|VNet Peering| Spoke1
-    ERGW <-->|VNet Peering| Spoke2
-    Bastion -.->|SSH| HubVM
-    Bastion -.->|SSH| Spk1VM
-    Bastion -.->|SSH| Spk2VM
-```
+> 📐 [Open and edit in Excalidraw](https://excalidraw.com/#url=https://raw.githubusercontent.com/dmauser/azure-er-scalablegw/main/diagrams/architecture.excalidraw)
 
 ### Upgrade Flow
 
