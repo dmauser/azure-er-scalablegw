@@ -48,6 +48,23 @@ echo "  ER Peering Location : $cxlocation"
 echo "  ER Provider         : $provider"
 echo ""
 
+# ─── Start Timer ────────────────────────────────────────────────────────────
+start=$(date +%s)
+echo "Script started at $(date)"
+
+# ─── Detect Azure Cloud Shell and start keepalive ────────────────────────────
+is_cloudshell=false
+if [[ "${ACC_TERM:-}" == "1" ]] || [[ "${AZURE_HTTP_USER_AGENT:-}" == *"cloud-shell"* ]] || [[ "$(hostname)" == SandboxHost-* ]]; then
+    is_cloudshell=true
+fi
+
+keepalive_pid=""
+if $is_cloudshell; then
+    echo "Azure Cloud Shell detected: starting keepalive to prevent timeout."
+    (while true; do echo -e "\nCloud Shell keepalive\n"; sleep 300; done) &
+    keepalive_pid=$!
+fi
+
 # ─── Get Deployer Object ID (for Key Vault access policy) ────────────────────
 # The password is auto-generated inside Bicep and stored in Key Vault.
 # We only need the deployer Object ID so the access policy is set correctly.
@@ -178,3 +195,14 @@ echo "  1. Run: bash scripts/2-deploy-onprem-gcp.azcli  (GCP on-prem setup)"
 echo "  2. Run: bash scripts/4-test-connectivity.sh      (verify baseline)"
 echo "  3. Run: bash scripts/3-upgrade-ergw.azcli        (upgrade to ErGwScale)"
 echo "============================================================"
+
+# ─── Stop keepalive and print elapsed time ───────────────────────────────────
+if $is_cloudshell && [[ -n "$keepalive_pid" ]]; then
+    kill "$keepalive_pid" >/dev/null 2>&1
+    echo "Stopped Cloud Shell keepalive process."
+fi
+
+end=$(date +%s)
+runtime=$((end - start))
+echo "Script finished at $(date)"
+echo "Total execution time: $((runtime / 3600)) hours $(((runtime / 60) % 60)) minutes and $((runtime % 60)) seconds."
