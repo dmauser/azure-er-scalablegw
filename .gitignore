@@ -1,0 +1,23 @@
+# Deployment outputs and sensitive artifacts
+*.log
+*.tmp
+*.env
+.env*
+
+# Azure CLI
+*.azcli.bak
+
+# Bicep build artifacts
+*.json.bak
+*.arm.json
+
+# Editor / OS
+.vscode/settings.json
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Secrets — never commit credentials
+secrets/
+creds.txt
+password.txt

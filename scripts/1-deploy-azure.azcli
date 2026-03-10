@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Script 1 — Deploy Azure Infrastructure + ExpressRoute Circuit + Connection
+# =============================================================================
+# Usage: bash scripts/1-deploy-azure.azcli
+#
+# This script:
+#   1. Generates a strong admin password and stores it in Key Vault
+#   2. Deploys Hub+Spoke VNets, VMs (no public IP), Bastion, ER Gateway (ErGw1AZ)
+#   3. Creates the ExpressRoute Circuit (Megaport / Chicago)
+#   4. Waits for provider provisioning (requires manual Megaport configuration)
+#   5. Creates the ER connection between the circuit and the gateway
+# =============================================================================
+
+set -euo pipefail
+
+# ─── Parameters ──────────────────────────────────────────────────────────────
+rg=lab-er-scale           # Resource Group name
+location=westus3          # Azure region
+hubName=az-hub
+spoke1Name=az-spk1
+spoke2Name=az-spk2
+adminUsername=azureuser
+vmSize=Standard_DS1_v2
+
+# ExpressRoute circuit settings
+ername=er-lab-circuit     # ExpressRoute Circuit name
+cxlocation="Chicago"      # ExpressRoute peering location
+provider=Megaport         # ExpressRoute provider
+
+# ─── Generate a Strong Admin Password ────────────────────────────────────────
+echo ""
+echo "=== Generating admin password ==="
+adminPassword=$(python3 -c "
+import secrets, string
+chars = string.ascii_letters + string.digits + '!@#\$%^&*()'
+while True:
+    pwd = ''.join(secrets.choice(chars) for _ in range(20))
+    if (any(c.isupper() for c in pwd) and
+        any(c.islower() for c in pwd) and
+        any(c.isdigit() for c in pwd) and
+        any(c in '!@#\$%^&*()' for c in pwd)):
+        print(pwd)
+        break
+")
+echo "Admin password generated (will be stored in Key Vault)."
+
+# ─── Get Deployer Object ID (for Key Vault access policy) ────────────────────
+echo ""
+echo "=== Retrieving deployer identity ==="
+deployerObjectId=$(az ad signed-in-user show --query id -o tsv 2>/dev/null || \
+    az account show --query "user.name" -o tsv | xargs -I{} az ad user show --id {} --query id -o tsv)
+echo "Deployer Object ID: $deployerObjectId"
+
+# ─── Create Resource Group ────────────────────────────────────────────────────
+echo ""
+echo "=== Creating resource group: $rg ==="
+az group create --name "$rg" --location "$location" --output none
+echo "Resource group created: $rg ($location)"
+
+# ─── Deploy Bicep Infrastructure ─────────────────────────────────────────────
+echo ""
+echo "=== Deploying Azure infrastructure ==="
+echo "    Hub + Spokes + VMs (no public IP) + Bastion + ER Gateway (ErGw1AZ)"
+echo "    This will take approximately 25-35 minutes (ER Gateway provisioning)..."
+echo ""
+
+deploymentOutputs=$(az deployment group create \
+    --name "er-lab-deploy-$(date +%s)" \
+    --resource-group "$rg" \
+    --template-file "bicep/main.bicep" \
+    --parameters "bicep/main.bicepparam" \
+    --parameters \
+        adminPassword="$adminPassword" \
+        deployerObjectId="$deployerObjectId" \
+        hubName="$hubName" \
+        spoke1Name="$spoke1Name" \
+        spoke2Name="$spoke2Name" \
+        adminUsername="$adminUsername" \
+        vmSize="$vmSize" \
+    --query "properties.outputs" \
+    --output json)
+
+echo ""
+echo "=== Bicep deployment complete ==="
+
+# Extract outputs
+kvName=$(echo "$deploymentOutputs" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['keyVaultName']['value'])")
+erGwName=$(echo "$deploymentOutputs" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['erGatewayName']['value'])")
+
+echo "Key Vault:            $kvName"
+echo "ER Gateway:           $erGwName"
+echo "Hub VM:               $(echo "$deploymentOutputs" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['hubVmName']['value'])")"
+echo "Spoke1 VM:            $(echo "$deploymentOutputs" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['spoke1VmName']['value'])")"
+echo "Spoke2 VM:            $(echo "$deploymentOutputs" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['spoke2VmName']['value'])")"
+
+# ─── Retrieve Admin Credentials from Key Vault ───────────────────────────────
+echo ""
+echo "=== Admin credentials stored in Key Vault ==="
+echo "  Username: $(az keyvault secret show --vault-name "$kvName" --name admin-username --query value -o tsv)"
+echo "  Password: [retrieve with: az keyvault secret show --vault-name $kvName --name admin-password --query value -o tsv]"
+
+# ─── Create ExpressRoute Circuit ─────────────────────────────────────────────
+echo ""
+echo "=== Creating ExpressRoute Circuit ==="
+echo "    Provider:         $provider"
+echo "    Peering Location: $cxlocation"
+echo "    Bandwidth:        50 Mbps"
+echo "    SKU:              Standard / MeteredData"
+
+az network express-route create \
+    --bandwidth 50 \
+    --name "$ername" \
+    --peering-location "$cxlocation" \
+    --resource-group "$rg" \
+    --provider "$provider" \
+    --location "$location" \
+    --sku-family MeteredData \
+    --sku-tier Standard \
+    --output none
+
+echo ""
+echo "=== ExpressRoute Circuit service key ==="
+serviceKey=$(az network express-route show -n "$ername" -g "$rg" --query serviceKey -o tsv)
+echo "  Service Key: $serviceKey"
+echo ""
+echo "  *** ACTION REQUIRED ***"
+echo "  Provide this service key to Megaport to provision the circuit."
+echo "  See: https://docs.megaport.com/cloud/microsoft-azure/azure-expressroute/"
+echo ""
+
+# ─── Wait for Provider Provisioning ─────────────────────────────────────────
+echo "=== Waiting for ExpressRoute provider provisioning ==="
+echo "    Checking every 60 seconds... (this may take 15-60 minutes)"
+echo "    Press Ctrl+C to exit — re-run this section manually when provider is ready."
+echo ""
+
+while true; do
+    provState=$(az network express-route show -n "$ername" -g "$rg" \
+        --query serviceProviderProvisioningState -o tsv)
+    echo "$(date '+%H:%M:%S') Provider state: $provState"
+    if [[ "$provState" == "Provisioned" ]]; then
+        break
+    fi
+    sleep 60
+done
+
+echo ""
+echo "=== Provider has provisioned the circuit ==="
+
+# ─── Create ER Connection ─────────────────────────────────────────────────────
+echo ""
+echo "=== Creating ER connection: circuit → gateway ==="
+erid=$(az network express-route show -n "$ername" -g "$rg" --query id -o tsv)
+
+az network vpn-connection create \
+    --name "er-connection-${hubName}" \
+    --resource-group "$rg" \
+    --vnet-gateway1 "$erGwName" \
+    --express-route-circuit2 "$erid" \
+    --routing-weight 0 \
+    --output none
+
+echo ""
+echo "============================================================"
+echo "  DEPLOYMENT COMPLETE"
+echo "============================================================"
+echo "  Resource Group:  $rg"
+echo "  ER Gateway:      $erGwName  (SKU: ErGw1AZ)"
+echo "  Key Vault:       $kvName"
+echo ""
+echo "  Next steps:"
+echo "  1. Run: bash scripts/2-deploy-onprem-gcp.azcli  (GCP on-prem setup)"
+echo "  2. Run: bash scripts/4-test-connectivity.sh      (verify baseline)"
+echo "  3. Run: bash scripts/3-upgrade-ergw.azcli        (upgrade to ErGwScale)"
+echo "============================================================"
