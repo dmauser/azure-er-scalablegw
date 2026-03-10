@@ -5,6 +5,95 @@
 
 This lab demonstrates how to upgrade an existing Azure ExpressRoute Gateway from **ErGw1AZ** to the **Scalable ExpressRoute Gateway (ErGwScale)** with minimal or zero downtime. GCP is used to simulate an on-premises environment connected via a Megaport partner interconnect.
 
+---
+
+## Why Upgrade to the Scalable ExpressRoute Gateway (ErGwScale)?
+
+The **Scalable ExpressRoute Gateway** (SKU: `ErGwScale`) is the next-generation gateway designed for enterprise and large-scale hybrid connectivity. Legacy SKUs (ErGw1AZ, ErGw2AZ, ErGw3AZ) have **fixed, hard-capped throughput** and do not adapt to changing traffic demands. ErGwScale removes these ceilings and introduces elastic, pay-per-use scaling.
+
+### Throughput: From Fixed Limits to 40 Gbps
+
+| SKU | Max Throughput | Scale Units | Zone Redundant |
+|-----|---------------|-------------|----------------|
+| ErGw1AZ | ~1 Gbps | 1 (fixed) | Yes |
+| ErGw2AZ | ~2 Gbps | 2 (fixed) | Yes |
+| ErGw3AZ | ~10 Gbps | 10 (fixed) | Yes |
+| **ErGwScale** | **up to 40 Gbps** | **1–40 (auto or manual)** | **Yes** |
+
+> Each scale unit adds ~1 Gbps of gateway throughput. You can configure auto-scale min/max bounds or set a fixed number of units.
+
+### Real-World Example: Maximum Resiliency with Two ER Circuits
+
+A common enterprise design uses **two ExpressRoute circuits for maximum resiliency** — a primary and a secondary, each on a different peering location and provider. With legacy SKUs, a single ER gateway becomes the **throughput bottleneck**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Maximum Resiliency Design (2 × ER Circuits, 10 Gbps each)  │
+│                                                             │
+│  ER Circuit A ──┐                                           │
+│   (10 Gbps)     ├──► ErGw3AZ (max 10 Gbps) ──► Azure VNets │  ← bottlenecked
+│  ER Circuit B ──┘                                           │
+│   (10 Gbps)                                                 │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  Same Design with ErGwScale (20+ scale units)               │
+│                                                             │
+│  ER Circuit A ──┐                                           │
+│   (10 Gbps)     ├──► ErGwScale (20 Gbps+) ──► Azure VNets  │  ← full throughput
+│  ER Circuit B ──┘                                           │
+│   (10 Gbps)                                                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+With **ErGwScale set to 20 scale units**, both circuits can contribute their full 10 Gbps simultaneously — delivering **20 Gbps of aggregate throughput** and true active-active utilization of your ER investments. If you require even higher bandwidth, simply increase scale units up to 40.
+
+### FastPath: Bypass the Gateway from the Data Plane
+
+**FastPath** is one of the most impactful features for latency-sensitive and high-throughput workloads. Normally, all data flowing between on-premises and Azure traverses the ExpressRoute Gateway — adding a hop, latency, and gateway processing overhead.
+
+With FastPath enabled:
+
+- **The gateway is removed from the data plane** — traffic flows **directly** from the on-premises edge to the Azure VM NIC, bypassing the gateway entirely.
+- The gateway still handles the **control plane** (BGP, route advertisement) but is no longer in the packet forwarding path.
+- This dramatically reduces end-to-end latency and removes the gateway as a throughput ceiling for VM-level traffic.
+
+```
+Without FastPath:
+  On-Prem ──► MSEE ──► ER Gateway ──► VM NIC   (gateway in data path)
+
+With FastPath:
+  On-Prem ──► MSEE ──────────────► VM NIC       (gateway bypassed)
+```
+
+> **FastPath requirement:** FastPath is supported on **ErGwScale** and **ErGw3AZ** and requires an **ExpressRoute Direct** circuit (not a provider/partner circuit). It is not supported with partner circuits (e.g., Megaport, Equinix).
+
+### Business Value Summary
+
+| Benefit | Legacy SKUs | ErGwScale |
+|---------|-------------|-----------|
+| **Maximum throughput** | Up to 10 Gbps (fixed) | Up to **40 Gbps** (scalable) |
+| **Active-active multi-circuit** | Gateway-limited | Full bandwidth from all circuits |
+| **Cost efficiency** | Pay for fixed SKU | Pay only for scale units in use |
+| **Elastic scaling** | Manual SKU change = downtime | Auto-scale with min/max bounds |
+| **FastPath (ER Direct)** | ErGw3AZ only | **Fully supported** |
+| **Zone redundancy** | Yes (AZ variants) | Yes (built-in) |
+| **Upgrade path** | Disruptive SKU change | **In-place, non-disruptive** |
+| **Future-proof** | Fixed capability | Scales with your business |
+
+### Who Should Upgrade?
+
+Consider upgrading to ErGwScale if any of these apply:
+
+- You have **multiple ExpressRoute circuits** and want to fully utilize aggregate bandwidth
+- You are approaching the **throughput limit** of your current gateway SKU
+- You want to enable **FastPath** for latency-sensitive workloads (requires ER Direct)
+- You want **auto-scaling** to handle burst workloads without pre-provisioning
+- You want to **consolidate** multiple ER gateways into a single scalable gateway
+- You want a **future-proof** gateway that doesn't require disruptive SKU upgrades
+
+---
+
 ## Architecture
 
 ![Architecture Diagram](diagrams/architecture.svg)
