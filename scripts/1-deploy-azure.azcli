@@ -36,8 +36,17 @@ vmSize=Standard_DS1_v2
 
 # ExpressRoute circuit settings
 ername=er-lab-circuit     # ExpressRoute Circuit name
-cxlocation="Chicago"      # ExpressRoute peering location
-provider=Megaport         # ExpressRoute provider
+
+read -r -p "ER peering location [Dallas]: " cxlocation_input
+cxlocation="${cxlocation_input:-Dallas}"
+
+read -r -p "ER provider         [Megaport]: " provider_input
+provider="${provider_input:-Megaport}"
+
+echo ""
+echo "  ER Peering Location : $cxlocation"
+echo "  ER Provider         : $provider"
+echo ""
 
 # ─── Get Deployer Object ID (for Key Vault access policy) ────────────────────
 # The password is auto-generated inside Bicep and stored in Key Vault.

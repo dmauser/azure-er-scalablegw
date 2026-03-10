@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "3423164819398748881"
+      "templateHash": "15507799964391176238"
     }
   },
   "parameters": {
@@ -46,10 +46,9 @@
     },
     "adminPassword": {
       "type": "securestring",
-      "minLength": 12,
-      "maxLength": 72,
+      "defaultValue": "[newGuid()]",
       "metadata": {
-        "description": "VM administrator password. Must be 12-72 chars with uppercase, lowercase, digit, and special character."
+        "description": "VM administrator password. Auto-generated per deployment if not supplied (newGuid). Stored securely in Key Vault — never output by this template."
       }
     },
     "vmSize": {
@@ -61,8 +60,9 @@
     },
     "deployerObjectId": {
       "type": "string",
+      "defaultValue": "",
       "metadata": {
-        "description": "Object ID of the principal (user or service principal) deploying this template. Used for Key Vault access policy."
+        "description": "Object ID of the principal deploying this template. Used for Key Vault access policy. Omit to skip access policy (add manually later)."
       }
     },
     "kvName": {
@@ -132,7 +132,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.41.2.15936",
-              "templateHash": "15283650738375170145"
+              "templateHash": "2275684539294769155"
             }
           },
           "parameters": {
@@ -149,7 +149,11 @@
               "type": "securestring"
             },
             "deployerObjectId": {
-              "type": "string"
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Object ID of the deploying principal. Leave empty to skip access policy."
+              }
             }
           },
           "resources": [
@@ -169,23 +173,7 @@
                 "softDeleteRetentionInDays": 7,
                 "enabledForDeployment": true,
                 "enabledForTemplateDeployment": true,
-                "accessPolicies": [
-                  {
-                    "tenantId": "[subscription().tenantId]",
-                    "objectId": "[parameters('deployerObjectId')]",
-                    "permissions": {
-                      "secrets": [
-                        "get",
-                        "list",
-                        "set",
-                        "delete",
-                        "recover",
-                        "backup",
-                        "restore"
-                      ]
-                    }
-                  }
-                ]
+                "accessPolicies": "[if(empty(parameters('deployerObjectId')), createArray(), createArray(createObject('tenantId', subscription().tenantId, 'objectId', parameters('deployerObjectId'), 'permissions', createObject('secrets', createArray('get', 'list', 'set', 'delete', 'recover', 'backup', 'restore')))))]"
               }
             },
             {

@@ -17,11 +17,9 @@ param spoke2Name string = 'az-spk2'
 @description('VM administrator username.')
 param adminUsername string = 'azureuser'
 
-@description('VM administrator password. Auto-generated per deployment if not supplied. Stored securely in Key Vault — never output by this template.')
+@description('VM administrator password. Auto-generated per deployment if not supplied (newGuid). Stored securely in Key Vault — never output by this template.')
 @secure()
-@minLength(12)
-@maxLength(72)
-param adminPassword string = '${uniqueString(resourceGroup().id, deployment().name)}Az1!'
+param adminPassword string = newGuid()
 
 @description('Virtual machine size.')
 param vmSize string = 'Standard_DS1_v2'
