@@ -8,43 +8,34 @@ This lab demonstrates how to upgrade an existing Azure ExpressRoute Gateway from
 ## Architecture
 
 ```mermaid
-graph TB
-    subgraph OnPrem["🏢 On-Premises Simulation — GCP (192.168.0.0/24)"]
-        direction LR
-        GCPVM["GCP VM\n192.168.0.x"]
-        GCPRouter["Cloud Router\nASN: 16550"]
-        Megaport2["Megaport\nPartner Interconnect"]
-        GCPVM --- GCPRouter
-        GCPRouter --- Megaport2
+graph LR
+    subgraph OnPrem["On-Premises (GCP)\n192.168.0.0/24"]
+        GCPVM[GCP VM]
     end
 
-    ERCircuit["⚡ ExpressRoute Circuit\nMegaport · Chicago · 50 Mbps"]
+    ERCircuit([ExpressRoute Circuit\nMegaport])
 
-    subgraph Azure["☁️ Azure — West US 3"]
-        subgraph Hub["Hub VNet — 10.0.0.0/24"]
-            ERGW["🔀 ExpressRoute Gateway\n① Start: ErGw1AZ\n② Upgrade: ErGwScale\n10.0.0.32/27"]
-            Bastion["🛡 Azure Bastion\n10.0.0.192/26"]
-            HubVM["🖥 Hub VM\n10.0.0.0/27 — No Public IP\nSerial Console + Bastion"]
-            KV["🔑 Key Vault\n(Admin credentials)"]
-            RS["Route Server\n10.0.0.128/27"]
-        end
-
-        subgraph Spoke1["az-spk1 VNet — 10.0.1.0/24"]
-            Spk1VM["🖥 Spoke1 VM\n10.0.1.0/27 — No Public IP\nSerial Console + Bastion"]
-        end
-
-        subgraph Spoke2["az-spk2 VNet — 10.0.2.0/24"]
-            Spk2VM["🖥 Spoke2 VM\n10.0.2.0/27 — No Public IP\nSerial Console + Bastion"]
-        end
+    subgraph Hub["Hub VNet — 10.0.0.0/24"]
+        ERGW[ER Gateway\nErGw1AZ → ErGwScale]
+        Bastion[Azure Bastion]
+        HubVM[Hub VM]
     end
 
-    Megaport2 -->|"BGP / Private Peering"| ERCircuit
-    ERCircuit -->|"Private Peering"| ERGW
-    ERGW <-->|"VNet Peering — Gateway Transit"| Spoke1
-    ERGW <-->|"VNet Peering — Gateway Transit"| Spoke2
-    Bastion o--o HubVM
-    Bastion o--o Spk1VM
-    Bastion o--o Spk2VM
+    subgraph Spoke1["az-spk1 — 10.0.1.0/24"]
+        Spk1VM[Spoke1 VM]
+    end
+
+    subgraph Spoke2["az-spk2 — 10.0.2.0/24"]
+        Spk2VM[Spoke2 VM]
+    end
+
+    GCPVM -->|ExpressRoute| ERCircuit
+    ERCircuit -->|Private Peering| ERGW
+    ERGW <-->|VNet Peering| Spoke1
+    ERGW <-->|VNet Peering| Spoke2
+    Bastion -.->|SSH| HubVM
+    Bastion -.->|SSH| Spk1VM
+    Bastion -.->|SSH| Spk2VM
 ```
 
 ### Upgrade Flow
@@ -88,7 +79,7 @@ azure-er-scalablegw/
 
 | Component | Details |
 |-----------|---------|
-| **Hub VNet** | 10.0.0.0/24 — ER Gateway, Bastion, Route Server |
+| **Hub VNet** | 10.0.0.0/24 — ER Gateway, Bastion |
 | **Spoke1 VNet** | 10.0.1.0/24 — Workload subnet |
 | **Spoke2 VNet** | 10.0.2.0/24 — Workload subnet |
 | **VMs** | Ubuntu 22.04 · No Public IP · Serial Console + Bastion access |
@@ -237,8 +228,6 @@ az keyvault secret show --vault-name $kvName --name admin-username --query value
 | Hub VNet | 10.0.0.0/24 | Hub network |
 | subnet1 | 10.0.0.0/27 | Hub VMs |
 | GatewaySubnet | 10.0.0.32/27 | ExpressRoute Gateway |
-| AzureFirewallSubnet | 10.0.0.64/26 | Reserved (Azure Firewall) |
-| RouteServerSubnet | 10.0.0.128/27 | Azure Route Server |
 | AzureBastionSubnet | 10.0.0.192/26 | Azure Bastion |
 | Spoke1 VNet | 10.0.1.0/24 | Spoke 1 |
 | Spoke1/subnet1 | 10.0.1.0/27 | Spoke 1 VMs |

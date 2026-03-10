@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "15507799964391176238"
+      "templateHash": "8216465131489209125"
     }
   },
   "parameters": {
@@ -90,8 +90,6 @@
     "hubAddressPrefix": "10.0.0.0/24",
     "hubSubnet1Prefix": "10.0.0.0/27",
     "hubGwSubnetPrefix": "10.0.0.32/27",
-    "hubFwSubnetPrefix": "10.0.0.64/26",
-    "hubRsSubnetPrefix": "10.0.0.128/27",
     "hubBastionPrefix": "10.0.0.192/26",
     "spoke1AddressPrefix": "10.0.1.0/24",
     "spoke1Subnet1Prefix": "10.0.1.0/27",
@@ -251,12 +249,6 @@
           "gatewaySubnetPrefix": {
             "value": "[variables('hubGwSubnetPrefix')]"
           },
-          "firewallSubnetPrefix": {
-            "value": "[variables('hubFwSubnetPrefix')]"
-          },
-          "rsSubnetPrefix": {
-            "value": "[variables('hubRsSubnetPrefix')]"
-          },
           "bastionSubnetPrefix": {
             "value": "[variables('hubBastionPrefix')]"
           }
@@ -268,7 +260,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.41.2.15936",
-              "templateHash": "1484082890413304257"
+              "templateHash": "14659495494064055825"
             }
           },
           "parameters": {
@@ -285,12 +277,6 @@
               "type": "string"
             },
             "gatewaySubnetPrefix": {
-              "type": "string"
-            },
-            "firewallSubnetPrefix": {
-              "type": "string"
-            },
-            "rsSubnetPrefix": {
               "type": "string"
             },
             "bastionSubnetPrefix": {
@@ -323,18 +309,6 @@
                     }
                   },
                   {
-                    "name": "AzureFirewallSubnet",
-                    "properties": {
-                      "addressPrefix": "[parameters('firewallSubnetPrefix')]"
-                    }
-                  },
-                  {
-                    "name": "RouteServerSubnet",
-                    "properties": {
-                      "addressPrefix": "[parameters('rsSubnetPrefix')]"
-                    }
-                  },
-                  {
                     "name": "AzureBastionSubnet",
                     "properties": {
                       "addressPrefix": "[parameters('bastionSubnetPrefix')]"
@@ -364,14 +338,6 @@
             "bastionSubnetId": {
               "type": "string",
               "value": "[format('{0}/subnets/AzureBastionSubnet', resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('hubName'))))]"
-            },
-            "rsSubnetId": {
-              "type": "string",
-              "value": "[format('{0}/subnets/RouteServerSubnet', resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('hubName'))))]"
-            },
-            "firewallSubnetId": {
-              "type": "string",
-              "value": "[format('{0}/subnets/AzureFirewallSubnet', resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('hubName'))))]"
             }
           }
         }
