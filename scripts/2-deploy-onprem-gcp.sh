@@ -215,18 +215,37 @@ else
         exit 1
     fi
 
-    echo "  Creating instance '${envname}-vm1' ..."
-    gcloud compute instances create "${envname}-vm1" \
-        --zone="$zone" \
-        --machine-type="$machine_type" \
-        --network-interface=subnet="${envname}-subnet",network-tier=PREMIUM \
-        --image="$ubuntu_image" \
-        --image-project=ubuntu-os-cloud \
-        --boot-disk-size=10GB \
-        --boot-disk-type=pd-balanced \
-        --boot-disk-device-name="${envname}-vm1" \
-        --quiet
-    echo "  VM created."
+    # Try the preferred zone first, then fall back to other zones in the region
+    # if the zone has insufficient resources (ZONE_RESOURCE_POOL_EXHAUSTED).
+    fallback_zones=("us-central1-c" "us-central1-a" "us-central1-b" "us-central1-f")
+    vm_created=false
+    for try_zone in "${fallback_zones[@]}"; do
+        echo "  Creating instance '${envname}-vm1' in zone $try_zone ..."
+        create_output=$(gcloud compute instances create "${envname}-vm1" \
+            --zone="$try_zone" \
+            --machine-type="$machine_type" \
+            --network-interface=subnet="${envname}-subnet",network-tier=PREMIUM \
+            --image="$ubuntu_image" \
+            --image-project=ubuntu-os-cloud \
+            --boot-disk-size=10GB \
+            --boot-disk-type=pd-balanced \
+            --boot-disk-device-name="${envname}-vm1" \
+            --quiet 2>&1) && vm_created=true && zone="$try_zone" && break
+
+        if echo "$create_output" | grep -q "ZONE_RESOURCE_POOL_EXHAUSTED"; then
+            echo "  Zone $try_zone has insufficient resources — trying next zone..."
+        else
+            echo "$create_output" >&2
+            exit 1
+        fi
+    done
+
+    if ! $vm_created; then
+        echo "ERROR: Could not create VM in any zone: ${fallback_zones[*]}"
+        echo "  Try again later or specify a different region."
+        exit 1
+    fi
+    echo "  VM created in zone: $zone"
 fi
 
 # Get VM internal IP

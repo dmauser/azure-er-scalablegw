@@ -247,14 +247,30 @@ else
     echo "=== Creating ER connection: circuit → gateway ==="
     erid=$(az network express-route show -n "$ername" -g "$rg" --query id -o tsv)
 
-    az network vpn-connection create \
-        --name "$connName" \
-        --resource-group "$rg" \
-        --vnet-gateway1 "$erGwName" \
-        --express-route-circuit2 "$erid" \
-        --routing-weight 0 \
-        --output none
-    echo "ER connection '$connName' created."
+    max_retries=5
+    retry_delay=60
+    attempt=1
+    while true; do
+        echo "  Attempt $attempt of $max_retries..."
+        if az network vpn-connection create \
+            --name "$connName" \
+            --resource-group "$rg" \
+            --vnet-gateway1 "$erGwName" \
+            --express-route-circuit2 "$erid" \
+            --routing-weight 0 \
+            --output none 2>&1; then
+            echo "ER connection '$connName' created."
+            break
+        else
+            if (( attempt >= max_retries )); then
+                echo "ERROR: Failed to create ER connection after $max_retries attempts. Exiting."
+                exit 1
+            fi
+            echo "  Creation failed. Retrying in ${retry_delay}s... (attempt $attempt/$max_retries)"
+            sleep "$retry_delay"
+            (( attempt++ ))
+        fi
+    done
 fi
 
 echo ""
