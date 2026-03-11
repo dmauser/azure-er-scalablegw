@@ -182,7 +182,90 @@ azure-er-scalablegw/
 | Azure Subscription | With Owner or Contributor + Key Vault permissions |
 | GCP Account | For on-premises simulation |
 | Megaport Account | For the partner interconnect between Azure ER and GCP Interconnect |
-| Python 3 | For password generation in deploy script |
+| Python 3 | Required by the deploy script to parse deployment outputs |
+
+### Recommended Environment
+
+> **Best experience:** Run the Azure scripts from a **Linux environment**. Both a native Linux VM and **Windows with WSL 2** (Windows Subsystem for Linux) work well. Running directly from Windows CMD or PowerShell is not recommended as the scripts use bash syntax.
+
+#### Option A — Linux VM or WSL 2 (Recommended)
+
+Install or update the Azure CLI on Debian/Ubuntu (including WSL):
+
+```bash
+# Install Azure CLI (first time)
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+# Update Azure CLI to the latest version
+az upgrade
+
+# Install / update the Bicep CLI
+az bicep install
+az bicep upgrade
+
+# Verify versions
+az --version
+az bicep version
+```
+
+> 📄 Full installation guide: [Install Azure CLI on Linux](https://learn.microsoft.com/cli/azure/install-azure-cli-linux)  
+> 📄 WSL 2 setup guide: [Install WSL on Windows](https://learn.microsoft.com/windows/wsl/install)
+
+#### Option B — Azure Cloud Shell
+
+Azure Cloud Shell (bash) has the Azure CLI pre-installed and is always up to date. No local setup required — just open [shell.azure.com](https://shell.azure.com). The deploy script automatically detects Cloud Shell and starts a keepalive to prevent session timeouts.
+
+```bash
+# Verify version in Cloud Shell
+az --version
+
+# Update if needed (Cloud Shell usually auto-updates, but just in case)
+az upgrade
+```
+
+---
+
+### GCP CLI Setup (for Script 2 — On-Premises Simulation)
+
+Script 2 creates the GCP on-premises environment. The best experience is to run it from **GCP Cloud Shell**, which has `gcloud` pre-installed and authenticated.
+
+#### Option A — GCP Cloud Shell (Recommended)
+
+Open [shell.cloud.google.com](https://shell.cloud.google.com) — no installation needed. `gcloud` is pre-installed and authenticated to your GCP project.
+
+```bash
+# Verify gcloud version
+gcloud version
+
+# Update all gcloud components to latest
+gcloud components update
+
+# Ensure you're logged in to the right project
+gcloud auth list
+gcloud config set project YOUR_PROJECT_ID
+```
+
+> 📄 GCP Cloud Shell guide: [Using Cloud Shell](https://cloud.google.com/shell/docs/using-cloud-shell)
+
+#### Option B — Local Linux / WSL with gcloud CLI
+
+```bash
+# Install gcloud CLI (Debian/Ubuntu)
+curl https://sdk.cloud.google.com | bash
+exec -l $SHELL
+
+# Update gcloud CLI
+gcloud components update
+
+# Authenticate
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+
+# Verify
+gcloud version
+```
+
+> 📄 Full installation guide: [Install the gcloud CLI](https://cloud.google.com/sdk/docs/install)
 
 ## Step-by-Step Lab Guide
 
