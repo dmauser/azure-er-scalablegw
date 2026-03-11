@@ -152,9 +152,9 @@ azure-er-scalablegw/
 │       ├── vm.bicep            # Ubuntu 22.04 VM, no public IP, boot diagnostics
 │       └── er-gateway.bicep    # ExpressRoute Gateway (upgradeable SKU)
 └── scripts/
-    ├── 1-deploy-azure.azcli    # Deploy Azure infra + ER circuit + connection
-    ├── 2-deploy-onprem-gcp.azcli  # GCP on-premises simulation
-    ├── 3-upgrade-ergw.azcli    # Upgrade ER GW: ErGw1AZ → ErGwScale
+    ├── 1-deploy-azure.sh    # Deploy Azure infra + ER circuit + connection
+    ├── 2-deploy-onprem-gcp.sh  # GCP on-premises simulation
+    ├── 3-upgrade-ergw.sh    # Upgrade ER GW: ErGw1AZ → ErGwScale
     ├── 4-test-connectivity.sh  # Validate connectivity and routing
     └── 5-monitor-downtime.sh   # Continuous monitoring during upgrade
 ```
@@ -197,7 +197,7 @@ cd azure-er-scalablegw
 # Edit bicep/main.bicepparam or override via CLI flags
 
 # 3. Run the Azure deployment script
-bash scripts/1-deploy-azure.azcli
+bash scripts/1-deploy-azure.sh
 ```
 
 The script will:
@@ -211,7 +211,7 @@ The script will:
 
 ```bash
 # In a GCP Cloud Shell or local terminal with gcloud configured
-bash scripts/2-deploy-onprem-gcp.azcli
+bash scripts/2-deploy-onprem-gcp.sh
 ```
 
 This script will:
@@ -229,7 +229,7 @@ Once Megaport has provisioned both sides (ProviderProvisioningState = `Provision
 ```bash
 # Script 1 (continued) will automatically detect provisioning and create the connection
 # Or run manually:
-bash scripts/1-deploy-azure.azcli  # Picks up from the wait loop
+bash scripts/1-deploy-azure.sh  # Picks up from the wait loop
 ```
 
 ### Phase 4 — Test Baseline Connectivity
@@ -255,7 +255,7 @@ bash scripts/5-monitor-downtime.sh
 
 **Terminal 2 — Upgrade the gateway:**
 ```bash
-bash scripts/3-upgrade-ergw.azcli
+bash scripts/3-upgrade-ergw.sh
 ```
 
 The upgrade changes the gateway SKU from **ErGw1AZ** → **ErGwScale**. The process:
@@ -336,7 +336,7 @@ rg=lab-er-scale
 az group delete --name $rg --yes --no-wait
 
 # GCP resources
-bash scripts/2-deploy-onprem-gcp.azcli  # Contains cleanup section at the bottom
+bash scripts/2-deploy-onprem-gcp.sh  # Contains cleanup section at the bottom
 ```
 
 > **Note:** Key Vault has soft-delete enabled (7-day retention). To permanently purge after deletion:
