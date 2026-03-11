@@ -25,7 +25,7 @@ gwName="${hubName}-ergw"
 erCircuitName=er-lab-circuit
 
 # ─── CONFIGURE THIS ──────────────────────────────────────────────────────────
-ONPREM_IP="192.168.0.x"   # Replace with actual GCP VM internal IP
+ONPREM_IP="192.168.0.2"   # Replace with actual GCP VM internal IP
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Helper to run commands in a VM via Azure Run Command

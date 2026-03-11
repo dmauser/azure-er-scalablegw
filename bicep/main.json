@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "8216465131489209125"
+      "templateHash": "2058512956017674074"
     }
   },
   "parameters": {
@@ -89,7 +89,7 @@
   "variables": {
     "hubAddressPrefix": "10.0.0.0/24",
     "hubSubnet1Prefix": "10.0.0.0/27",
-    "hubGwSubnetPrefix": "10.0.0.32/27",
+    "hubGwSubnetPrefix": "10.0.0.64/26",
     "hubBastionPrefix": "10.0.0.192/26",
     "spoke1AddressPrefix": "10.0.1.0/24",
     "spoke1Subnet1Prefix": "10.0.1.0/27",

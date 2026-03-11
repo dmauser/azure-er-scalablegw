@@ -52,6 +52,49 @@ echo ""
 start=$(date +%s)
 echo "Script started at $(date)"
 
+# ─── Verify Azure CLI authentication ────────────────────────────────────────
+echo ""
+echo "=== Checking Azure CLI authentication ==="
+
+if ! az account show --output none 2>/dev/null; then
+    echo ""
+    echo "ERROR: Not logged in to Azure CLI. Please authenticate first:"
+    echo ""
+    echo "  Interactive login (local terminal / WSL):" 
+    echo "    az login"
+    echo ""
+    echo "  Device code login (headless / SSH session):"
+    echo "    az login --use-device-code"
+    echo ""
+    echo "  Service principal login:"
+    echo "    az login --service-principal -u <appId> -p <password> --tenant <tenantId>"
+    echo ""
+    echo "  After login, verify your active subscription:"
+    echo "    az account show"
+    echo "    az account list --output table"
+    echo "    az account set --subscription \"<subscriptionId or name>\""
+    echo ""
+    echo "  Docs: https://learn.microsoft.com/cli/azure/authenticate-azure-cli"
+    exit 1
+fi
+
+# Show active subscription so the user can confirm before proceeding
+subName=$(az account show --query name -o tsv)
+subId=$(az account show --query id -o tsv)
+tenantId=$(az account show --query tenantId -o tsv)
+echo "Active subscription : $subName"
+echo "Subscription ID     : $subId"
+echo "Tenant ID           : $tenantId"
+echo ""
+read -r -p "Continue with this subscription? [Y/n]: " confirm_sub
+if [[ "${confirm_sub,,}" == "n" ]]; then
+    echo ""
+    echo "Switch subscription with:"
+    echo "  az account list --output table"
+    echo "  az account set --subscription \"<subscriptionId or name>\""
+    exit 1
+fi
+
 # ─── Detect Azure Cloud Shell and start keepalive ────────────────────────────
 is_cloudshell=false
 if [[ "${ACC_TERM:-}" == "1" ]] || [[ "${AZURE_HTTP_USER_AGENT:-}" == *"cloud-shell"* ]] || [[ "$(hostname)" == SandboxHost-* ]]; then

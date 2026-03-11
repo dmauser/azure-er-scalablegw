@@ -103,6 +103,8 @@ Not all upgrade paths are equal. Before proceeding, review the following:
 | **Non-AZ SKU** (e.g., Standard, HighPerf, UltraPerf) → ErGwScale | **Yes — migration required** | Non-AZ gateways must first be migrated to an AZ-aware SKU or recreated |
 | ErGw1AZ / ErGw2AZ → ErGw3AZ (legacy AZ upgrades) | Varies | Supported but may cause brief BGP flap; ErGwScale is the preferred target |
 
+> **GatewaySubnet size — /26 or larger required:** ErGwScale requires the `GatewaySubnet` to be at least **/26** (64 addresses). A /27 is sufficient for legacy SKUs but **will block the upgrade**. If your existing GatewaySubnet is /27, you must resize it to /26 before upgrading. See: [Resize a gateway subnet](https://learn.microsoft.com/azure/vpn-gateway/vpn-gateway-about-vpn-gateway-settings#resize-a-gateway-subnet).
+
 > **Non-AZ to AZ migration:** If your current gateway uses a legacy non-zone-redundant SKU (Standard, HighPerf, UltraPerf), you cannot do a direct in-place upgrade to ErGwScale. A **gateway migration** is required, which involves deploying a new gateway and re-establishing connections. Plan for a maintenance window.
 
 > **Downgrade warning:** Once upgraded to ErGwScale, downgrading to a lower SKU (e.g., ErGw1AZ) is **not supported as an in-place operation**. If a rollback is needed, the gateway must be deleted and recreated.
@@ -394,7 +396,7 @@ az keyvault secret show --vault-name $kvName --name admin-username --query value
 |---------|------|-------|
 | Hub VNet | 10.0.0.0/24 | Hub network |
 | subnet1 | 10.0.0.0/27 | Hub VMs |
-| GatewaySubnet | 10.0.0.32/27 | ExpressRoute Gateway |
+| GatewaySubnet | 10.0.0.64/26 | ExpressRoute Gateway (**min /26 required for ErGwScale**) |
 | AzureBastionSubnet | 10.0.0.192/26 | Azure Bastion |
 | Spoke1 VNet | 10.0.1.0/24 | Spoke 1 |
 | Spoke1/subnet1 | 10.0.1.0/27 | Spoke 1 VMs |

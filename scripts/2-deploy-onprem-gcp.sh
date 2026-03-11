@@ -21,57 +21,213 @@
 
 set -euo pipefail
 
+# ─── Debug mode ──────────────────────────────────────────────────────────────
+# Run with DEBUG=1 bash scripts/2-deploy-onprem-gcp.sh to trace every command.
+if [[ "${DEBUG:-0}" == "1" ]]; then
+    set -x
+fi
+
+# Trap any error and print the failing line number + last command so it's easy
+# to pinpoint exactly where the script stopped.
+trap 'rc=$?; echo ""; echo "================================================"; echo "ERROR: Script failed at line ${LINENO} (exit code $rc)"; echo "  Last command: ${BASH_COMMAND}"; echo "  Hint: Re-run with DEBUG=1 to trace all commands:"; echo "    DEBUG=1 bash scripts/2-deploy-onprem-gcp.sh"; echo "================================================"; exit $rc' ERR
+
 # ─── Parameters ──────────────────────────────────────────────────────────────
-project=YOUR_GCP_PROJECT_ID  # Set your GCP project: gcloud projects list
 region=us-central1           # GCP region (Chicago area maps to us-central1)
 zone=us-central1-c           # Availability zone
 vpcrange=192.168.0.0/24      # On-premises simulation range (matches Azure ER route advertisement)
 envname=lab-erscale          # Environment name prefix
 
-# ─── Configure GCP Project ───────────────────────────────────────────────────
+# ─── Verify gcloud authentication and credentials ───────────────────────────
 echo ""
+echo "=== Checking gcloud authentication ==="
+
+# Check if gcloud CLI is available at all
+if ! command -v gcloud &>/dev/null; then
+    echo ""
+    echo "ERROR: gcloud CLI not found. Install it first:"
+    echo ""
+    echo "  Option A — GCP Cloud Shell (recommended, no install needed):"
+    echo "    Open https://shell.cloud.google.com"
+    echo ""
+    echo "  Option B — Local install (Linux / WSL):"
+    echo "    curl https://sdk.cloud.google.com | bash"
+    echo "    exec -l \$SHELL"
+    echo "    gcloud init"
+    echo ""
+    echo "  Docs: https://cloud.google.com/sdk/docs/install"
+    exit 1
+fi
+
+# Check for an active authenticated account
+active_account=$(gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/null | head -1)
+if [[ -z "$active_account" ]]; then
+    echo ""
+    echo "ERROR: No active gcloud account found. Authenticate first:"
+    echo ""
+    echo "  Interactive login (browser opens):"
+    echo "    gcloud auth login"
+    echo ""
+    echo "  Device code / headless login (e.g. SSH, WSL without browser):"
+    echo "    gcloud auth login --no-launch-browser"
+    echo ""
+    echo "  Service account key:"
+    echo "    gcloud auth activate-service-account --key-file=<path/to/key.json>"
+    echo ""
+    echo "  Docs: https://cloud.google.com/sdk/gcloud/reference/auth/login"
+    exit 1
+fi
+echo "Logged in as: $active_account"
+
+# Check Application Default Credentials (ADC) — needed for some API calls
+if ! gcloud auth application-default print-access-token &>/dev/null; then
+    echo ""
+    echo "WARNING: Application Default Credentials (ADC) not configured."
+    echo "Some API calls may fail. To set them up:"
+    echo "  gcloud auth application-default login"
+    echo ""
+    echo "  (In Cloud Shell, ADC is configured automatically — you can ignore this warning)"
+    echo ""
+fi
+
+# Try to grab the project already configured in the active session
+session_project=$(gcloud config get-value project 2>/dev/null || echo "")
+
+if [[ -n "$session_project" && "$session_project" != "(unset)" ]]; then
+    echo ""
+    read -r -p "GCP Project ID [$session_project]: " project_input
+    project="${project_input:-$session_project}"
+else
+    echo ""
+    echo "Available projects:"
+    gcloud projects list --format="table(projectId,name)" 2>/dev/null || true
+    echo ""
+    read -r -p "GCP Project ID: " project_input
+    if [[ -z "$project_input" ]]; then
+        echo "ERROR: A GCP project ID is required."
+        exit 1
+    fi
+    project="$project_input"
+fi
+
+echo ""
+echo "  GCP Account : $active_account"
+echo "  GCP Project : $project"
+echo ""
+
+# ─── Configure GCP Project ───────────────────────────────────────────────────
 echo "=== Configuring GCP project: $project ==="
 gcloud config set project "$project"
 
-# ─── Create VPC and Subnet ───────────────────────────────────────────────────
+# ─── Create VPC and Subnet (idempotent) ─────────────────────────────────────
 echo ""
-echo "=== Creating GCP VPC and subnet ==="
-gcloud compute networks create "${envname}-vpc" \
-    --subnet-mode=custom \
-    --mtu=1460 \
-    --bgp-routing-mode=regional \
-    --quiet
+echo "=== Ensuring GCP VPC exists ==="
+if gcloud compute networks describe "${envname}-vpc" --format="value(name)" &>/dev/null; then
+    echo "  VPC '${envname}-vpc' already exists — skipping."
+else
+    gcloud compute networks create "${envname}-vpc" \
+        --subnet-mode=custom \
+        --mtu=1460 \
+        --bgp-routing-mode=regional \
+        --quiet
+    echo "  VPC created: ${envname}-vpc"
+fi
 
-gcloud compute networks subnets create "${envname}-subnet" \
-    --range="$vpcrange" \
-    --network="${envname}-vpc" \
-    --region="$region" \
-    --quiet
+echo "=== Ensuring subnet exists ==="
+if gcloud compute networks subnets describe "${envname}-subnet" --region="$region" --format="value(name)" &>/dev/null; then
+    echo "  Subnet '${envname}-subnet' already exists — skipping."
+else
+    gcloud compute networks subnets create "${envname}-subnet" \
+        --range="$vpcrange" \
+        --network="${envname}-vpc" \
+        --region="$region" \
+        --quiet
+    echo "  Subnet created: ${envname}-subnet ($vpcrange)"
+fi
 
-# ─── Create Firewall Rules ────────────────────────────────────────────────────
+# ─── Create Firewall Rules (idempotent) ──────────────────────────────────────
 echo ""
-echo "=== Creating firewall rules ==="
-# Allow traffic from Azure VNets (10.0.0.0/8) and RFC1918 ranges
-gcloud compute firewall-rules create "${envname}-allow-azure" \
-    --network "${envname}-vpc" \
-    --allow tcp,udp,icmp \
-    --source-ranges "192.168.0.0/16,10.0.0.0/8,172.16.0.0/12" \
-    --description "Allow traffic from Azure VNets via ExpressRoute" \
-    --quiet
+echo "=== Ensuring firewall rule exists ==="
+if gcloud compute firewall-rules describe "${envname}-allow-azure" --format="value(name)" &>/dev/null; then
+    echo "  Firewall rule '${envname}-allow-azure' already exists — skipping."
+else
+    # Allow traffic from Azure VNets (10.0.0.0/8) and RFC1918 ranges
+    gcloud compute firewall-rules create "${envname}-allow-azure" \
+        --network "${envname}-vpc" \
+        --allow tcp,udp,icmp \
+        --source-ranges "192.168.0.0/16,10.0.0.0/8,172.16.0.0/12" \
+        --description "Allow traffic from Azure VNets via ExpressRoute" \
+        --quiet
+    echo "  Firewall rule created."
+fi
 
-# ─── Create Ubuntu VM ─────────────────────────────────────────────────────────
+# ─── Create Ubuntu VM (idempotent) ───────────────────────────────────────────
 echo ""
-echo "=== Creating GCP VM (on-premises simulation) ==="
-gcloud compute instances create "${envname}-vm1" \
-    --zone="$zone" \
-    --machine-type=f1-micro \
-    --network-interface=subnet="${envname}-subnet",network-tier=PREMIUM \
-    --image-family=ubuntu-2004-lts \
-    --image-project=ubuntu-os-cloud \
-    --boot-disk-size=10GB \
-    --boot-disk-type=pd-balanced \
-    --boot-disk-device-name="${envname}-vm1" \
-    --quiet
+echo "=== Ensuring GCP VM exists ==="
+if gcloud compute instances describe "${envname}-vm1" --zone="$zone" --format="value(name)" &>/dev/null; then
+    echo "  VM '${envname}-vm1' already exists — skipping creation."
+else
+    echo "=== Creating GCP VM (on-premises simulation) ==="
+
+    # Resolve the latest Ubuntu 24.04 LTS image dynamically so the script never
+    # pins to a stale image version.
+    echo "  Resolving latest Ubuntu 24.04 LTS image..."
+    ubuntu_image=$(gcloud compute images list \
+        --project=ubuntu-os-cloud \
+        --filter="family=ubuntu-2404-lts-amd64 AND status=READY" \
+        --sort-by="~creationTimestamp" \
+        --format="value(name)" \
+        --limit=1 2>/dev/null)
+
+    if [[ -z "$ubuntu_image" ]]; then
+        echo "  ubuntu-2404-lts-amd64 not found, falling back to ubuntu-2204-lts..."
+        ubuntu_image=$(gcloud compute images list \
+            --project=ubuntu-os-cloud \
+            --filter="family=ubuntu-2204-lts AND status=READY" \
+            --sort-by="~creationTimestamp" \
+            --format="value(name)" \
+            --limit=1 2>/dev/null)
+    fi
+
+    if [[ -z "$ubuntu_image" ]]; then
+        echo "ERROR: Could not resolve any Ubuntu LTS image. Check your gcloud auth and API access."
+        exit 1
+    fi
+    echo "  Using image: $ubuntu_image"
+
+    # f1-micro is a legacy shared-core type and may not be available in all zones.
+    # Prefer e2-micro (modern equivalent, also free-tier eligible); fall back to
+    # e2-small if neither is available.
+    echo "  Checking machine type availability in zone: $zone..."
+    machine_type=""
+    for candidate in e2-micro f1-micro e2-small; do
+        if gcloud compute machine-types describe "$candidate" --zone="$zone" \
+            --format="value(name)" &>/dev/null; then
+            machine_type="$candidate"
+            echo "  Using machine type: $machine_type"
+            break
+        fi
+        echo "  $candidate not available in $zone, trying next..."
+    done
+
+    if [[ -z "$machine_type" ]]; then
+        echo "ERROR: No suitable small machine type found in zone $zone."
+        echo "  Try a different zone, e.g.: zone=us-central1-a"
+        exit 1
+    fi
+
+    echo "  Creating instance '${envname}-vm1' ..."
+    gcloud compute instances create "${envname}-vm1" \
+        --zone="$zone" \
+        --machine-type="$machine_type" \
+        --network-interface=subnet="${envname}-subnet",network-tier=PREMIUM \
+        --image="$ubuntu_image" \
+        --image-project=ubuntu-os-cloud \
+        --boot-disk-size=10GB \
+        --boot-disk-type=pd-balanced \
+        --boot-disk-device-name="${envname}-vm1" \
+        --quiet
+    echo "  VM created."
+fi
 
 # Get VM internal IP
 vmInternalIp=$(gcloud compute instances describe "${envname}-vm1" \
@@ -79,25 +235,35 @@ vmInternalIp=$(gcloud compute instances describe "${envname}-vm1" \
     --format="value(networkInterfaces[0].networkIP)")
 echo "  VM Internal IP: $vmInternalIp"
 
-# ─── Create Cloud Router ──────────────────────────────────────────────────────
+# ─── Create Cloud Router (idempotent) ────────────────────────────────────────
 echo ""
-echo "=== Creating Cloud Router ==="
-# ASN 16550 is required for Google Cloud Partner Interconnect
-gcloud compute routers create "${envname}-router" \
-    --region="$region" \
-    --network="${envname}-vpc" \
-    --asn=16550 \
-    --quiet
+echo "=== Ensuring Cloud Router exists ==="
+if gcloud compute routers describe "${envname}-router" --region="$region" --format="value(name)" &>/dev/null; then
+    echo "  Cloud Router '${envname}-router' already exists — skipping."
+else
+    # ASN 16550 is required for Google Cloud Partner Interconnect
+    gcloud compute routers create "${envname}-router" \
+        --region="$region" \
+        --network="${envname}-vpc" \
+        --asn=16550 \
+        --quiet
+    echo "  Cloud Router created (ASN 16550)."
+fi
 
-# ─── Create Partner Interconnect Attachment (Megaport) ───────────────────────
+# ─── Create Partner Interconnect Attachment (idempotent) ─────────────────────
 echo ""
-echo "=== Creating Partner Interconnect attachment ==="
-gcloud compute interconnects attachments partner create "${envname}-vlan" \
-    --region "$region" \
-    --edge-availability-domain availability-domain-1 \
-    --router "${envname}-router" \
-    --admin-enabled \
-    --quiet
+echo "=== Ensuring Partner Interconnect attachment exists ==="
+if gcloud compute interconnects attachments describe "${envname}-vlan" --region="$region" --format="value(name)" &>/dev/null; then
+    echo "  Attachment '${envname}-vlan' already exists — skipping."
+else
+    gcloud compute interconnects attachments partner create "${envname}-vlan" \
+        --region "$region" \
+        --edge-availability-domain availability-domain-1 \
+        --router "${envname}-router" \
+        --admin-enabled \
+        --quiet
+    echo "  Attachment created."
+fi
 
 # ─── Display Pairing Key ─────────────────────────────────────────────────────
 echo ""
@@ -127,6 +293,10 @@ echo "  Subnet:      $vpcrange"
 echo "  VM:          ${envname}-vm1  ($vmInternalIp)"
 echo "  Router ASN:  16550"
 echo "  Attachment:  ${envname}-vlan"
+echo ""
+echo "  *** PARTNER INTERCONNECT PAIRING KEY ***"
+echo "  $pairingKey"
+echo "  (Provide this key to Megaport to connect GCP ↔ Azure ER)"
 echo ""
 echo "  Next steps:"
 echo "  1. Configure Megaport to connect Azure ER ↔ GCP Interconnect"

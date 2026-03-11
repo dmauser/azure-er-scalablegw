@@ -38,7 +38,7 @@ param erGatewaySku string = 'ErGw1AZ'
 
 var hubAddressPrefix    = '10.0.0.0/24'
 var hubSubnet1Prefix    = '10.0.0.0/27'
-var hubGwSubnetPrefix   = '10.0.0.32/27'
+var hubGwSubnetPrefix   = '10.0.0.64/26'  // /26 required for ErGwScale (min 64 addresses)
 var hubBastionPrefix    = '10.0.0.192/26'
 var spoke1AddressPrefix = '10.0.1.0/24'
 var spoke1Subnet1Prefix = '10.0.1.0/27'
