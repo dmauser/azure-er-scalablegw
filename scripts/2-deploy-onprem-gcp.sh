@@ -146,7 +146,7 @@ fi
 
 # ─── Create Firewall Rules (idempotent) ──────────────────────────────────────
 echo ""
-echo "=== Ensuring firewall rule exists ==="
+echo "=== Ensuring firewall rules exist ==="
 if gcloud compute firewall-rules describe "${envname}-allow-azure" --format="value(name)" &>/dev/null; then
     echo "  Firewall rule '${envname}-allow-azure' already exists — skipping."
 else
@@ -157,14 +157,36 @@ else
         --source-ranges "192.168.0.0/16,10.0.0.0/8,172.16.0.0/12" \
         --description "Allow traffic from Azure VNets via ExpressRoute" \
         --quiet
-    echo "  Firewall rule created."
+    echo "  Firewall rule '${envname}-allow-azure' created."
+fi
+
+if gcloud compute firewall-rules describe "${envname}-allow-iap-ssh" --format="value(name)" &>/dev/null; then
+    echo "  Firewall rule '${envname}-allow-iap-ssh' already exists — skipping."
+else
+    # Allow Cloud IAP SSH tunnels (required for 'gcloud compute ssh' via IAP)
+    # Source range 35.235.240.0/20 is Google's IAP forwarder range
+    gcloud compute firewall-rules create "${envname}-allow-iap-ssh" \
+        --network "${envname}-vpc" \
+        --allow tcp:22 \
+        --source-ranges "35.235.240.0/20" \
+        --description "Allow SSH via Cloud Identity-Aware Proxy (IAP)" \
+        --quiet
+    echo "  Firewall rule '${envname}-allow-iap-ssh' created."
 fi
 
 # ─── Create Ubuntu VM (idempotent) ───────────────────────────────────────────
 echo ""
 echo "=== Ensuring GCP VM exists ==="
-if gcloud compute instances describe "${envname}-vm1" --zone="$zone" --format="value(name)" &>/dev/null; then
-    echo "  VM '${envname}-vm1' already exists — skipping creation."
+# Search across all zones in the region so we don't create a duplicate if the
+# VM was previously placed in a fallback zone.
+existing_zone=$(gcloud compute instances list \
+    --filter="name=${envname}-vm1 AND zone:($region)" \
+    --format="value(zone)" \
+    --limit=1 2>/dev/null | head -1)
+
+if [[ -n "$existing_zone" ]]; then
+    echo "  VM '${envname}-vm1' already exists in zone $existing_zone — skipping creation."
+    zone="$existing_zone"
 else
     echo "=== Creating GCP VM (on-premises simulation) ==="
 
@@ -332,6 +354,7 @@ echo "============================================================"
 # gcloud compute interconnects attachments delete "${envname}-vlan" --region $region --quiet
 # gcloud compute routers delete "${envname}-router" --region=$region --quiet
 # gcloud compute instances delete "${envname}-vm1" --zone=$zone --quiet
+# gcloud compute firewall-rules delete "${envname}-allow-iap-ssh" --quiet
 # gcloud compute firewall-rules delete "${envname}-allow-azure" --quiet
 # gcloud compute networks subnets delete "${envname}-subnet" --region=$region --quiet
 # gcloud compute networks delete "${envname}-vpc" --quiet
