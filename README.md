@@ -154,11 +154,13 @@ azure-er-scalablegw/
 │       ├── vm.bicep            # Ubuntu 22.04 VM, no public IP, boot diagnostics
 │       └── er-gateway.bicep    # ExpressRoute Gateway (upgradeable SKU)
 └── scripts/
-    ├── 1-deploy-azure.sh    # Deploy Azure infra + ER circuit + connection
+    ├── 1-deploy-azure.sh       # Deploy Azure infra + ER circuit + connection
     ├── 2-deploy-onprem-gcp.sh  # GCP on-premises simulation
-    ├── 3-upgrade-ergw.sh    # Upgrade ER GW: ErGw1AZ → ErGwScale
+    ├── 3-upgrade-ergw.sh       # Upgrade ER GW: ErGw1AZ → ErGwScale
     ├── 4-test-connectivity.sh  # Validate connectivity and routing
-    └── 5-monitor-downtime.sh   # Continuous monitoring during upgrade
+    ├── 5-monitor-downtime.sh   # Continuous monitoring during upgrade
+    ├── 6-cleanup-azure.sh      # Delete all Azure resources
+    └── 7-cleanup-gcp.sh        # Delete all GCP resources
 ```
 
 ## Lab Components
@@ -415,19 +417,42 @@ az keyvault secret show --vault-name $kvName --name admin-username --query value
 
 ## Cleanup
 
-```bash
-# Azure resources
-rg=lab-er-scale
-az group delete --name $rg --yes --no-wait
+Dedicated cleanup scripts handle teardown of each environment with confirmation prompts to prevent accidental deletion.
 
-# GCP resources
-bash scripts/2-deploy-onprem-gcp.sh  # Contains cleanup section at the bottom
+### Azure Cleanup
+
+```bash
+bash scripts/6-cleanup-azure.sh
 ```
 
-> **Note:** Key Vault has soft-delete enabled (7-day retention). To permanently purge after deletion:
+This script:
+- Prompts for the resource group name and region (defaults: `lab-er-scale` / `westus3`)
+- Requires you to **type the resource group name** to confirm before deleting
+- Deletes the entire resource group and all resources inside it (`--no-wait`)
+- Optionally **purges the Key Vault** — Key Vault has soft-delete enabled (7-day retention by default). You will be prompted whether to purge it immediately.
+
+> To purge the Key Vault manually later:
 > ```bash
 > az keyvault purge --name <kv-name> --location westus3
 > ```
+
+### GCP Cleanup
+
+```bash
+bash scripts/7-cleanup-gcp.sh
+```
+
+This script:
+- Verifies gcloud authentication and auto-detects the active project
+- Requires you to type **`yes`** to confirm before deleting
+- Removes resources in the correct dependency order:
+  1. Interconnect attachment (`lab-erscale-vlan`)
+  2. Cloud Router (`lab-erscale-router`)
+  3. VM instance (`lab-erscale-vm1`)
+  4. Firewall rule (`lab-erscale-allow-azure`)
+  5. Subnet (`lab-erscale-subnet`)
+  6. VPC network (`lab-erscale-vpc`)
+- Each step is **idempotent** — skips resources that no longer exist
 
 ## References
 
