@@ -70,8 +70,7 @@ echo "  WARNING: The following GCP resources will be deleted:"
 echo "  Project  : $project"
 echo "  Prefix   : $envname"
 echo "  Resources: ${envname}-vlan (attachment), ${envname}-router,"
-echo "             ${envname}-vm1, ${envname}-allow-azure (firewall),"
-echo "             ${envname}-subnet, ${envname}-vpc"
+echo "             ${envname}-vm1, ${envname}-allow-azure (firewall),"  echo "             ${envname}-allow-iap-ssh (firewall),"echo "             ${envname}-subnet, ${envname}-vpc"
 echo "============================================================"
 echo ""
 read -r -p "Type 'yes' to confirm deletion: " confirm
@@ -120,7 +119,18 @@ else
 fi
 echo ""
 
-# ─── Delete Firewall Rule ─────────────────────────────────────────────────────
+# ─── Delete Firewall Rules ───────────────────────────────────────────────────
+echo "=== Deleting firewall rule: ${envname}-allow-iap-ssh ==="
+if gcloud compute firewall-rules describe "${envname}-allow-iap-ssh" \
+    --project "$project" &>/dev/null; then
+    gcloud compute firewall-rules delete "${envname}-allow-iap-ssh" \
+        --project "$project" --quiet
+    echo "  Deleted."
+else
+    echo "  Not found — skipping."
+fi
+echo ""
+
 echo "=== Deleting firewall rule: ${envname}-allow-azure ==="
 if gcloud compute firewall-rules describe "${envname}-allow-azure" \
     --project "$project" &>/dev/null; then

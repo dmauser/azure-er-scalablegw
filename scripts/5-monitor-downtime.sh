@@ -34,13 +34,23 @@ summaryFile="/tmp/er-monitor-summary.txt"
 
 # ─── CONFIGURE THIS ──────────────────────────────────────────────────────────
 ONPREM_IP="192.168.0.x"   # Replace with actual GCP VM internal IP
-PING_DURATION=1800         # How long to run background ping (seconds). Default: 30 minutes.
 # ─────────────────────────────────────────────────────────────────────────────
 
 if [[ "$ONPREM_IP" == "192.168.0.x" ]]; then
     echo "ERROR: ONPREM_IP is not configured. Edit this script and set ONPREM_IP."
     exit 1
 fi
+
+# ─── Prompt for monitoring duration ──────────────────────────────────────────
+echo ""
+echo "  The ErGwScale upgrade typically takes 20-45 minutes."
+read -r -p "  Monitor duration in seconds [2700 = 45 min]: " duration_input
+PING_DURATION="${duration_input:-2700}"
+if ! [[ "$PING_DURATION" =~ ^[0-9]+$ ]] || (( PING_DURATION < 60 )); then
+    echo "ERROR: Duration must be a number >= 60 seconds."
+    exit 1
+fi
+echo "  Monitoring for ${PING_DURATION}s (~$((PING_DURATION / 60))m)"
 
 # ─── Helper: run a command inside the Azure VM ────────────────────────────────
 run_in_vm() {
