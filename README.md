@@ -45,25 +45,6 @@ The **Scalable ExpressRoute Gateway** (SKU: `ErGwScale`) is the next-generation 
 
 > Each scale unit adds ~1 Gbps of gateway throughput. You can configure auto-scale min/max bounds or set a fixed number of units.
 
-### FastPath: Bypass the Gateway from the Data Plane
-
-**FastPath** is one of the most impactful features for latency-sensitive and high-throughput workloads. Normally, all data flowing between on-premises and Azure traverses the ExpressRoute Gateway — adding a hop, latency, and gateway processing overhead.
-
-With FastPath enabled:
-- **The gateway is removed from the data plane** — traffic flows **directly** from the on-premises edge to the Azure VM NIC.
-- The gateway still handles the **control plane** (BGP, route advertisement).
-- This dramatically reduces end-to-end latency and removes the gateway as a throughput ceiling for VM-level traffic.
-
-```
-Without FastPath:
-  On-Prem ──► MSEE ──► ER Gateway ──► VM NIC   (gateway in data path)
-
-With FastPath:
-  On-Prem ──► MSEE ──────────────► VM NIC       (gateway bypassed)
-```
-
-> **FastPath requirement:** FastPath requires an **ExpressRoute Direct** circuit (not a provider/partner circuit) and is supported on **ErGwScale** and **ErGw3AZ**.
-
 ### Business Value Summary
 
 | Benefit | Legacy SKUs | ErGwScale |
@@ -72,7 +53,6 @@ With FastPath:
 | **Active-active multi-circuit** | Gateway-limited | Full bandwidth from all circuits |
 | **Cost efficiency** | Pay for fixed SKU | Pay only for scale units in use |
 | **Elastic scaling** | Manual SKU change = downtime | Auto-scale with min/max bounds |
-| **FastPath (ER Direct)** | ErGw3AZ only | **Fully supported** |
 | **Zone redundancy** | Yes (AZ variants) | Yes (built-in) |
 | **Upgrade path** | Disruptive SKU change | **In-place or migration, non-disruptive** |
 
@@ -405,7 +385,6 @@ All scripts source `scripts/lib/validate.sh`, which provides reusable pre-flight
 - 📄 [Scalable ExpressRoute Gateway (ErGwScale) overview](https://learn.microsoft.com/azure/expressroute/expressroute-about-virtual-network-gateways#scalable-gateway)
 - 📄 [Upgrade an ExpressRoute Gateway to ErGwScale](https://learn.microsoft.com/azure/expressroute/expressroute-howto-upgrade-expressroute-gateway)
 - 📄 [Migrate an ExpressRoute virtual network gateway](https://learn.microsoft.com/azure/expressroute/expressroute-howto-gateway-migration-portal)
-- 📄 [Configure FastPath for ExpressRoute](https://learn.microsoft.com/azure/expressroute/expressroute-howto-linkvnet-arm#configure-expressroute-fastpath)
 - 📄 [Azure Bastion — Connect to VM](https://learn.microsoft.com/azure/bastion/bastion-connect-vm-ssh-linux)
 - 📄 [Megaport Azure ExpressRoute](https://docs.megaport.com/cloud/microsoft-azure/azure-expressroute/)
 - 📄 [GCP Partner Interconnect](https://cloud.google.com/network-connectivity/docs/interconnect/concepts/partner-overview)
