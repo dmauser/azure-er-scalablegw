@@ -93,10 +93,10 @@ The **Scalable ExpressRoute Gateway** (SKU: `ErGwScale`) is the next-generation 
   ───────────────      ───────────────       ────────────────────────
   ┌─────────────┐      ┌─────────────┐
   │ ErGw1AZ     │      │ ErGw1AZ     │  OK ──► ┌──────────────────┐
-  │ (original)  │      │ (fading...) │          │  ③ COMMIT  ✅    │
-  │ Active ✓    │ ──►  │             │          │  ErGwScale: sole │
-  │             │      │ ErGwScale   │          │  Old gw: deleted │
-  │ ErGwScale   │      │ (active) ✓  │          └──────────────────┘
+  │ (original)  │      │ (fading...) │         │  ③ COMMIT  ✅    │
+  │ Active ✓    │ ──►  │             │         │  ErGwScale: sole │
+  │             │      │ ErGwScale   │         │  Old gw: deleted │
+  │ ErGwScale   │      │ (active) ✓  │         └──────────────────┘
   │ (new, prvs) │      └─────────────┘
   └─────────────┘      connections          ↩ ──► ┌──────────────────┐
   No traffic impact    transferred                 │  ③ ABORT   ↩    │
