@@ -2,17 +2,27 @@
 # =============================================================================
 # Script 1 — Deploy Azure Infrastructure + ExpressRoute Circuit + Connection
 # =============================================================================
-# Usage: bash scripts/1-deploy-azure.azcli
+# Usage: bash scripts/1-deploy-azure.sh
 #
-# This script:
-#   1. Deploys Hub+Spoke VNets, VMs (no public IP), Bastion, ER Gateway (ErGw1AZ)
-#      (admin password is auto-generated inside Bicep and stored in Key Vault)
-#   3. Creates the ExpressRoute Circuit (Megaport / Chicago)
-#   4. Waits for provider provisioning (requires manual Megaport configuration)
+# This script is COMMON to both upgrade scenarios:
+#   Scenario 1 (in-place upgrade) — follow with script 3
+#   Scenario 2 (gateway migration) — follow with script 4
+#
+# What this script does:
+#   1. Pre-flight validation (CLI version, auth, tools)
+#   2. Deploys Hub+Spoke VNets, VMs (no public IP), Bastion, ER Gateway
+#      Admin password is auto-generated inside Bicep and stored in Key Vault
+#   3. Creates the ExpressRoute Circuit
+#   4. Waits for provider provisioning (requires manual provider configuration)
 #   5. Creates the ER connection between the circuit and the gateway
 # =============================================================================
 
 set -euo pipefail
+
+# ─── Source shared validation library ────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/validate.sh
+source "${SCRIPT_DIR}/lib/validate.sh"
 
 # ─── Prompt for Resource Group and Region (with defaults) ────────────────────
 echo ""
@@ -43,50 +53,33 @@ cxlocation="${cxlocation_input:-Dallas}"
 read -r -p "ER provider         [Megaport]: " provider_input
 provider="${provider_input:-Megaport}"
 
+while true; do
+    read -r -p "ER Gateway SKU      [ErGw1AZ] (ErGw1AZ/ErGw2AZ/ErGw3AZ): " erGwSku_input
+    erGwSku="${erGwSku_input:-ErGw1AZ}"
+    if [[ "$erGwSku" == "ErGw1AZ" || "$erGwSku" == "ErGw2AZ" || "$erGwSku" == "ErGw3AZ" ]]; then
+        break
+    fi
+    echo "  Invalid SKU '$erGwSku'. Please enter ErGw1AZ, ErGw2AZ, or ErGw3AZ."
+done
+
 echo ""
 echo "  ER Peering Location : $cxlocation"
 echo "  ER Provider         : $provider"
+echo "  ER Gateway SKU      : $erGwSku"
 echo ""
 
-# ─── Start Timer ────────────────────────────────────────────────────────────
-start=$(date +%s)
-echo "Script started at $(date)"
+# =============================================================================
+# PRE-FLIGHT VALIDATION
+# =============================================================================
+print_validation_header "SCRIPT 1 — DEPLOY AZURE INFRASTRUCTURE"
+validate_tools
+validate_azure_cli_version 2 55
+validate_bicep_version 0 22
+validate_azure_auth   # sets SUBSCRIPTION_NAME, SUBSCRIPTION_ID, TENANT_ID
+print_validation_pass
 
-# ─── Verify Azure CLI authentication ────────────────────────────────────────
-echo ""
-echo "=== Checking Azure CLI authentication ==="
-
-if ! az account show --output none 2>/dev/null; then
-    echo ""
-    echo "ERROR: Not logged in to Azure CLI. Please authenticate first:"
-    echo ""
-    echo "  Interactive login (local terminal / WSL):" 
-    echo "    az login"
-    echo ""
-    echo "  Device code login (headless / SSH session):"
-    echo "    az login --use-device-code"
-    echo ""
-    echo "  Service principal login:"
-    echo "    az login --service-principal -u <appId> -p <password> --tenant <tenantId>"
-    echo ""
-    echo "  After login, verify your active subscription:"
-    echo "    az account show"
-    echo "    az account list --output table"
-    echo "    az account set --subscription \"<subscriptionId or name>\""
-    echo ""
-    echo "  Docs: https://learn.microsoft.com/cli/azure/authenticate-azure-cli"
-    exit 1
-fi
-
-# Show active subscription so the user can confirm before proceeding
-subName=$(az account show --query name -o tsv)
-subId=$(az account show --query id -o tsv)
-tenantId=$(az account show --query tenantId -o tsv)
-echo "Active subscription : $subName"
-echo "Subscription ID     : $subId"
-echo "Tenant ID           : $tenantId"
-echo ""
-read -r -p "Continue with this subscription? [Y/n]: " confirm_sub
+# Confirm subscription before proceeding
+read -r -p "Continue with subscription '${SUBSCRIPTION_NAME}'? [Y/n]: " confirm_sub
 if [[ "${confirm_sub,,}" == "n" ]]; then
     echo ""
     echo "Switch subscription with:"
@@ -94,6 +87,11 @@ if [[ "${confirm_sub,,}" == "n" ]]; then
     echo "  az account set --subscription \"<subscriptionId or name>\""
     exit 1
 fi
+
+# ─── Start Timer ────────────────────────────────────────────────────────────
+start=$(date +%s)
+echo ""
+echo "Script started at $(date)"
 
 # ─── Detect Azure Cloud Shell and start keepalive ────────────────────────────
 is_cloudshell=false
@@ -143,7 +141,7 @@ if [[ -n "$existingGw" ]]; then
     echo "ER Gateway: $erGwName"
 else
     echo "=== Deploying Azure infrastructure ==="
-    echo "    Hub + Spokes + VMs (no public IP) + Bastion + ER Gateway (ErGw1AZ)"
+    echo "    Hub + Spokes + VMs (no public IP) + Bastion + ER Gateway ($erGwSku)"
     echo "    This will take approximately 25-35 minutes (ER Gateway provisioning)..."
     echo ""
 
@@ -159,6 +157,7 @@ else
             spoke2Name="$spoke2Name" \
             adminUsername="$adminUsername" \
             vmSize="$vmSize" \
+            erGatewaySku="$erGwSku" \
         --query "properties.outputs" \
         --output json)
 
@@ -282,9 +281,12 @@ echo "  ER Gateway:      $erGwName  (SKU: ErGw1AZ)"
 echo "  Key Vault:       $kvName"
 echo ""
 echo "  Next steps:"
-echo "  1. Run: bash scripts/2-deploy-onprem-gcp.azcli  (GCP on-prem setup)"
-echo "  2. Run: bash scripts/4-test-connectivity.sh      (verify baseline)"
-echo "  3. Run: bash scripts/3-upgrade-ergw.azcli        (upgrade to ErGwScale)"
+echo "  1. GCP on-prem setup  :  bash scripts/2-deploy-onprem-gcp.sh"
+echo "  2. Test baseline      :  bash scripts/5-test-connectivity.sh"
+echo "  3. Choose your upgrade scenario:"
+echo "       Scenario 1 (in-place upgrade) :  bash scripts/3-scenario1-upgrade-ergw.sh"
+echo "       Scenario 2 (gateway migration):  bash scripts/4-scenario2-migrate-ergw.sh"
+echo "  4. During upgrade, monitor downtime: bash scripts/6-monitor-downtime.sh"
 echo "============================================================"
 
 # ─── Stop keepalive and print elapsed time ───────────────────────────────────

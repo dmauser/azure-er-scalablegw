@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Script 5 — Monitor Connectivity During ExpressRoute Gateway Upgrade
+# Script 6 — Monitor Connectivity During ExpressRoute Gateway Upgrade/Migration
 # =============================================================================
-# Usage: bash scripts/5-monitor-downtime.sh
+# Usage: bash scripts/6-monitor-downtime.sh
 #
-# Run this script in a separate terminal BEFORE starting the gateway upgrade
-# (scripts/3-upgrade-ergw.azcli). It continuously monitors ICMP reachability
-# from an Azure spoke VM to the on-premises GCP VM and logs any packet loss
-# with timestamps.
+# This script is COMMON to both upgrade scenarios.
+# Run it in a separate terminal BEFORE starting the upgrade or migration:
+#   Scenario 1: Before running bash scripts/3-scenario1-upgrade-ergw.sh
+#   Scenario 2: Before Phase 2 (Execute) of bash scripts/4-scenario2-migrate-ergw.sh
+#
+# It continuously monitors ICMP reachability from an Azure spoke VM to the
+# on-premises GCP VM and logs any packet loss with timestamps.
 #
 # HOW IT WORKS:
 #   Phase 1 (SETUP)    — Starts a background ping loop inside the Azure VM.

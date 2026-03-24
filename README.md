@@ -1,13 +1,36 @@
-# Azure ExpressRoute Gateway Upgrade Lab: ErGw1AZ → ErGwScale
+# Azure ExpressRoute Gateway Upgrade Lab: ErGwAZ → ErGwScale
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Bicep](https://img.shields.io/badge/IaC-Bicep-blue)](./bicep/)
 
-This lab demonstrates how to upgrade an existing Azure ExpressRoute Gateway from **ErGw1AZ** to the **Scalable ExpressRoute Gateway (ErGwScale)** with minimal or zero downtime. GCP is used to simulate an on-premises environment connected via a Megaport partner interconnect.
+This lab demonstrates two methods to upgrade an existing Azure ExpressRoute Gateway from an AZ-enabled SKU (**ErGw1AZ / ErGw2AZ / ErGw3AZ**) to the **Scalable ExpressRoute Gateway (ErGwScale)** with minimal or zero downtime. GCP is used to simulate an on-premises environment connected via a Megaport partner interconnect.
 
 ---
 
-## Why Upgrade to the Scalable ExpressRoute Gateway (ErGwScale)?
+## Two Upgrade Scenarios
+
+| | Scenario 1 | Scenario 2 |
+|---|---|---|
+| **Name** | In-Place Upgrade | Gateway Migration |
+| **How it works** | Azure modifies the existing gateway SKU in-place | Azure deploys a new ErGwScale alongside the old one, then migrates connections |
+| **Source SKUs** | ErGw1AZ, ErGw2AZ, ErGw3AZ | Any SKU including legacy (Standard, HighPerf, UltraPerf) |
+| **Script** | `3-scenario1-upgrade-ergw.sh` | `4-scenario2-migrate-ergw.sh` |
+| **Duration** | ~20–45 min (single operation) | ~40–75 min (3 phases with validation window) |
+| **Rollback** | Not supported after upgrade | Supported: abort after Execute, before Commit |
+| **BGP disruption** | Brief flap (typically milliseconds) | Brief flap during Execute phase only |
+| **Control granularity** | Single-step | Phase-by-phase (Prepare → Execute → Commit/Abort) |
+| **Best for** | Standard AZ gateway upgrades with minimal steps | Controlled migrations, legacy SKU moves, or when explicit rollback is required |
+
+### Which scenario should I use?
+
+- **Choose Scenario 1** if your gateway is already on an AZ SKU (ErGw1AZ/2AZ/3AZ) and you want the simplest possible upgrade path with no extra complexity.
+- **Choose Scenario 2** if you need a customer-controlled migration with an explicit validation window and rollback option, or if you have a legacy non-AZ SKU (Standard, HighPerf, UltraPerf).
+
+> Both scenarios start with the **same setup scripts** (1 and 2). The path diverges at script 3 vs script 4.
+
+---
+
+## Why Upgrade to ErGwScale?
 
 The **Scalable ExpressRoute Gateway** (SKU: `ErGwScale`) is the next-generation gateway designed for enterprise and large-scale hybrid connectivity. Legacy SKUs (ErGw1AZ, ErGw2AZ, ErGw3AZ) have **fixed, hard-capped throughput** and do not adapt to changing traffic demands. ErGwScale removes these ceilings and introduces elastic, pay-per-use scaling.
 
@@ -22,40 +45,13 @@ The **Scalable ExpressRoute Gateway** (SKU: `ErGwScale`) is the next-generation 
 
 > Each scale unit adds ~1 Gbps of gateway throughput. You can configure auto-scale min/max bounds or set a fixed number of units.
 
-### Real-World Example: Maximum Resiliency with Two ER Circuits
-
-A common enterprise design uses **two ExpressRoute circuits for maximum resiliency** — a primary and a secondary, each on a different peering location and provider. With legacy SKUs, a single ER gateway becomes the **throughput bottleneck**:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Maximum Resiliency Design (2 × ER Circuits, 10 Gbps each)  │
-│                                                             │
-│  ER Circuit A ──┐                                           │
-│   (10 Gbps)     ├──► ErGw3AZ (max 10 Gbps) ──► Azure VNets  │  ← bottlenecked
-│  ER Circuit B ──┘                                           │
-│   (10 Gbps)                                                 │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│  Same Design with ErGwScale (20+ scale units)               │
-│                                                             │
-│  ER Circuit A ──┐                                           │
-│   (10 Gbps)     ├──► ErGwScale (20 Gbps+) ──► Azure VNets   │  ← full throughput
-│  ER Circuit B ──┘                                           │
-│   (10 Gbps)                                                 │
-└─────────────────────────────────────────────────────────────┘
-```
-
-With **ErGwScale set to 20 scale units**, both circuits can contribute their full 10 Gbps simultaneously — delivering **20 Gbps of aggregate throughput** and true active-active utilization of your ER investments. If you require even higher bandwidth, simply increase scale units up to 40.
-
 ### FastPath: Bypass the Gateway from the Data Plane
 
 **FastPath** is one of the most impactful features for latency-sensitive and high-throughput workloads. Normally, all data flowing between on-premises and Azure traverses the ExpressRoute Gateway — adding a hop, latency, and gateway processing overhead.
 
 With FastPath enabled:
-
-- **The gateway is removed from the data plane** — traffic flows **directly** from the on-premises edge to the Azure VM NIC, bypassing the gateway entirely.
-- The gateway still handles the **control plane** (BGP, route advertisement) but is no longer in the packet forwarding path.
+- **The gateway is removed from the data plane** — traffic flows **directly** from the on-premises edge to the Azure VM NIC.
+- The gateway still handles the **control plane** (BGP, route advertisement).
 - This dramatically reduces end-to-end latency and removes the gateway as a throughput ceiling for VM-level traffic.
 
 ```
@@ -66,7 +62,7 @@ With FastPath:
   On-Prem ──► MSEE ──────────────► VM NIC       (gateway bypassed)
 ```
 
-> **FastPath requirement:** FastPath is supported on **ErGwScale** and **ErGw3AZ** and requires an **ExpressRoute Direct** circuit (not a provider/partner circuit). It is not supported with partner circuits (e.g., Megaport, Equinix).
+> **FastPath requirement:** FastPath requires an **ExpressRoute Direct** circuit (not a provider/partner circuit) and is supported on **ErGwScale** and **ErGw3AZ**.
 
 ### Business Value Summary
 
@@ -78,43 +74,7 @@ With FastPath:
 | **Elastic scaling** | Manual SKU change = downtime | Auto-scale with min/max bounds |
 | **FastPath (ER Direct)** | ErGw3AZ only | **Fully supported** |
 | **Zone redundancy** | Yes (AZ variants) | Yes (built-in) |
-| **Upgrade path** | Disruptive SKU change | **In-place, non-disruptive** |
-| **Future-proof** | Fixed capability | Scales with your business |
-
-### Who Should Upgrade?
-
-Consider upgrading to ErGwScale if any of these apply:
-
-- You have **multiple ExpressRoute circuits** and want to fully utilize aggregate bandwidth
-- You are approaching the **throughput limit** of your current gateway SKU
-- You want to enable **FastPath** for latency-sensitive workloads (requires ER Direct)
-- You want **auto-scaling** to handle burst workloads without pre-provisioning
-- You want to **consolidate** multiple ER gateways into a single scalable gateway
-- You want a **future-proof** gateway that doesn't require disruptive SKU upgrades
-
-### Upgrade Considerations and Caveats
-
-Not all upgrade paths are equal. Before proceeding, review the following:
-
-| Scenario | Disruptive? | Notes |
-|----------|-------------|-------|
-| Any AZ SKU → **ErGwScale** | **No** | In-place, live migration; existing connections stay up |
-| **ErGwScale** → lower AZ SKU (downgrade) | **Yes** | Downgrades are not supported in-place; requires gateway recreation |
-| **Non-AZ SKU** (e.g., Standard, HighPerf, UltraPerf) → ErGwScale | **Yes — migration required** | Non-AZ gateways must first be migrated to an AZ-aware SKU or recreated |
-| ErGw1AZ / ErGw2AZ → ErGw3AZ (legacy AZ upgrades) | Varies | Supported but may cause brief BGP flap; ErGwScale is the preferred target |
-
-> **GatewaySubnet size — /26 or larger required:** ErGwScale requires the `GatewaySubnet` to be at least **/26** (64 addresses). A /27 is sufficient for legacy SKUs but **will block the upgrade**. If your existing GatewaySubnet is /27, you must resize it to /26 before upgrading. See: [Resize a gateway subnet](https://learn.microsoft.com/azure/vpn-gateway/vpn-gateway-about-vpn-gateway-settings#resize-a-gateway-subnet).
-
-> **Non-AZ to AZ migration:** If your current gateway uses a legacy non-zone-redundant SKU (Standard, HighPerf, UltraPerf), you cannot do a direct in-place upgrade to ErGwScale. A **gateway migration** is required, which involves deploying a new gateway and re-establishing connections. Plan for a maintenance window.
-
-> **Downgrade warning:** Once upgraded to ErGwScale, downgrading to a lower SKU (e.g., ErGw1AZ) is **not supported as an in-place operation**. If a rollback is needed, the gateway must be deleted and recreated.
-
-For the latest supported upgrade paths, SKU restrictions, and migration procedures, always consult the official Microsoft documentation:
-
-- 📄 [Upgrade an ExpressRoute gateway to ErGwScale](https://learn.microsoft.com/azure/expressroute/expressroute-howto-gateway-migration-portal)
-- 📄 [About ExpressRoute virtual network gateways — SKUs](https://learn.microsoft.com/azure/expressroute/expressroute-about-virtual-network-gateways#gwsku)
-- 📄 [Migrate to availability zone-enabled ExpressRoute virtual network gateways](https://learn.microsoft.com/azure/expressroute/expressroute-howto-gateway-migration-portal)
-- 📄 [Configure FastPath for ExpressRoute](https://learn.microsoft.com/azure/expressroute/expressroute-howto-linkvnet-arm#configure-expressroute-fastpath)
+| **Upgrade path** | Disruptive SKU change | **In-place or migration, non-disruptive** |
 
 ---
 
@@ -124,16 +84,33 @@ For the latest supported upgrade paths, SKU restrictions, and migration procedur
 
 > 📐 [Open and edit in Excalidraw](https://excalidraw.com/#url=https://raw.githubusercontent.com/dmauser/azure-er-scalablegw/main/diagrams/architecture.excalidraw)
 
-### Upgrade Flow
+### Scenario 1 Flow — In-Place Upgrade
 
 ```
-┌──────────────┐         ┌──────────────┐
-│   ErGw1AZ    │──────►  │  ErGwScale   │
-│  (Standard)  │ upgrade │  (Scalable)  │
-│  ~1 Gbps     │         │  Auto-scale  │
-└──────────────┘         └──────────────┘
-   Script 1                 Script 3
+┌──────────────┐                    ┌──────────────┐
+│   ErGw1AZ    │  az vnet-gateway   │  ErGwScale   │
+│  (existing)  │ ────── update ──►  │  (same GW)   │
+│              │   SKU change only  │  Auto-scale  │
+└──────────────┘                    └──────────────┘
+      Script 3                            ↑
+   (single step)                    ER connections stay attached
 ```
+
+### Scenario 2 Flow — Gateway Migration
+
+```
+Phase 1 PREPARE    Phase 2 EXECUTE   Phase 3 COMMIT
+──────────────     ───────────────   ──────────────
+┌──────────┐        ┌──────────┐      ┌──────────┐
+│ ErGw1AZ  │  ──►  │ErGwScale │ ──►  │ErGwScale │
+│ (old GW) │        │(new GW)  │      │(only GW) │
+│[running] │        │[running] │      │          │
+└──────────┘        └──────────┘      └──────────┘
+  Connections on      Transfer conns    Old GW removed
+  old GW             (brief BGP flap)
+```
+
+---
 
 ## Repository Structure
 
@@ -141,7 +118,6 @@ For the latest supported upgrade paths, SKU restrictions, and migration procedur
 azure-er-scalablegw/
 ├── README.md
 ├── LICENSE
-├── .gitignore
 ├── bicep/
 │   ├── main.bicep              # Orchestration: VNets, VMs, Bastion, KV, ER GW
 │   ├── main.bicepparam         # Default parameters
@@ -153,15 +129,22 @@ azure-er-scalablegw/
 │       ├── bastion.bicep       # Azure Bastion (Basic SKU)
 │       ├── vm.bicep            # Ubuntu 22.04 VM, no public IP, boot diagnostics
 │       └── er-gateway.bicep    # ExpressRoute Gateway (upgradeable SKU)
-└── scripts/
-    ├── 1-deploy-azure.sh       # Deploy Azure infra + ER circuit + connection
-    ├── 2-deploy-onprem-gcp.sh  # GCP on-premises simulation
-    ├── 3-upgrade-ergw.sh       # Upgrade ER GW: ErGw1AZ → ErGwScale
-    ├── 4-test-connectivity.sh  # Validate connectivity and routing
-    ├── 5-monitor-downtime.sh   # Continuous monitoring during upgrade
-    ├── 6-cleanup-azure.sh      # Delete all Azure resources
-    └── 7-cleanup-gcp.sh        # Delete all GCP resources
+├── scripts/
+│   ├── lib/
+│   │   └── validate.sh             # Shared pre-flight validation functions
+│   ├── 1-deploy-azure.sh           # [COMMON] Deploy Azure infra + ER circuit + connection
+│   ├── 2-deploy-onprem-gcp.sh      # [COMMON] GCP on-premises simulation
+│   ├── 3-scenario1-upgrade-ergw.sh # [SCENARIO 1] In-place upgrade: ErGwAZ → ErGwScale
+│   ├── 4-scenario2-migrate-ergw.sh # [SCENARIO 2] Gateway migration: ErGwAZ → ErGwScale
+│   ├── 5-test-connectivity.sh      # [COMMON] Validate connectivity + BGP routes
+│   ├── 6-monitor-downtime.sh       # [COMMON] Continuous monitoring during upgrade
+│   ├── 7-cleanup-azure.sh          # [COMMON] Delete all Azure resources
+│   └── 8-cleanup-gcp.sh            # [COMMON] Delete all GCP resources
+└── diagrams/
+    └── architecture.excalidraw
 ```
+
+---
 
 ## Lab Components
 
@@ -173,9 +156,11 @@ azure-er-scalablegw/
 | **VMs** | Ubuntu 22.04 · No Public IP · Serial Console + Bastion access |
 | **Azure Bastion** | Basic SKU — browser-based SSH to all VMs |
 | **Key Vault** | Auto-generated strong password stored as secret |
-| **ER Gateway** | Starts as **ErGw1AZ** · upgraded to **ErGwScale** |
-| **ER Circuit** | Provider: Megaport · Location: Chicago · BW: 50 Mbps |
+| **ER Gateway** | Starts as **ErGw1AZ** · upgraded to **ErGwScale** via scenario of choice |
+| **ER Circuit** | Provider: Megaport · Location: Dallas · BW: 50 Mbps |
 | **On-Prem (GCP)** | GCP VPC + VM via Megaport Partner Interconnect |
+
+---
 
 ## Prerequisites
 
@@ -183,18 +168,16 @@ azure-er-scalablegw/
 |-------------|-------|
 | Azure CLI ≥ 2.55 | `az --version` |
 | Bicep CLI ≥ 0.22 | `az bicep version` or `bicep --version` |
-| Azure Subscription | With Owner or Contributor + Key Vault permissions |
-| GCP Account | For on-premises simulation |
-| Megaport Account | For the partner interconnect between Azure ER and GCP Interconnect |
-| Python 3 | Required by the deploy script to parse deployment outputs |
+| Azure Subscription | Owner or Contributor + Key Vault permissions |
+| GCP Account | For on-premises simulation (script 2 only) |
+| Megaport Account | For the partner interconnect |
+| Python 3 | Required for JSON parsing in deploy scripts |
 
 ### Recommended Environment
 
-> **Best experience:** Run the Azure scripts from a **Linux environment**. Both a native Linux VM and **Windows with WSL 2** (Windows Subsystem for Linux) work well. Running directly from Windows CMD or PowerShell is not recommended as the scripts use bash syntax.
+> **Best experience:** Run the Azure scripts from a **Linux environment** — native Linux, WSL 2, or Azure Cloud Shell. Windows CMD / PowerShell is not supported.
 
 #### Option A — Linux VM or WSL 2 (Recommended)
-
-Install or update the Azure CLI on Debian/Ubuntu (including WSL):
 
 ```bash
 # Install Azure CLI (first time)
@@ -212,185 +195,159 @@ az --version
 az bicep version
 ```
 
-> 📄 Full installation guide: [Install Azure CLI on Linux](https://learn.microsoft.com/cli/azure/install-azure-cli-linux)  
-> 📄 WSL 2 setup guide: [Install WSL on Windows](https://learn.microsoft.com/windows/wsl/install)
-
 #### Option B — Azure Cloud Shell
 
-Azure Cloud Shell (bash) has the Azure CLI pre-installed and is always up to date. No local setup required — just open [shell.azure.com](https://shell.azure.com). The deploy script automatically detects Cloud Shell and starts a keepalive to prevent session timeouts.
+Open [shell.azure.com](https://shell.azure.com) — Azure CLI and Bicep are always up to date. The deploy script detects Cloud Shell and starts a keepalive.
+
+---
+
+## Step-by-Step Lab Guide
+
+### Phase 0 — Clone the Repository
 
 ```bash
-# Verify version in Cloud Shell
-az --version
-
-# Update if needed (Cloud Shell usually auto-updates, but just in case)
-az upgrade
+git clone https://github.com/dmauser/azure-er-scalablegw.git
+cd azure-er-scalablegw
 ```
 
 ---
 
-### GCP CLI Setup (for Script 2 — On-Premises Simulation)
-
-Script 2 creates the GCP on-premises environment. The best experience is to run it from **GCP Cloud Shell**, which has `gcloud` pre-installed and authenticated.
-
-#### Option A — GCP Cloud Shell (Recommended)
-
-Open [shell.cloud.google.com](https://shell.cloud.google.com) — no installation needed. `gcloud` is pre-installed and authenticated to your GCP project.
+### Phase 1 — Deploy Azure Infrastructure (common to both scenarios)
 
 ```bash
-# Verify gcloud version
-gcloud version
-
-# Update all gcloud components to latest
-gcloud components update
-
-# Ensure you're logged in to the right project
-gcloud auth list
-gcloud config set project YOUR_PROJECT_ID
-```
-
-> 📄 GCP Cloud Shell guide: [Using Cloud Shell](https://cloud.google.com/shell/docs/using-cloud-shell)
-
-#### Option B — Local Linux / WSL with gcloud CLI
-
-```bash
-# Install gcloud CLI (Debian/Ubuntu)
-curl https://sdk.cloud.google.com | bash
-exec -l $SHELL
-
-# Update gcloud CLI
-gcloud components update
-
-# Authenticate
-gcloud auth login
-gcloud config set project YOUR_PROJECT_ID
-
-# Verify
-gcloud version
-```
-
-> 📄 Full installation guide: [Install the gcloud CLI](https://cloud.google.com/sdk/docs/install)
-
-## Step-by-Step Lab Guide
-
-### Phase 1 — Deploy Azure Infrastructure
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/dmauser/azure-er-scalablegw.git
-cd azure-er-scalablegw
-
-# 2. Review and edit parameters (optional)
-# Edit bicep/main.bicepparam or override via CLI flags
-
-# 3. Run the Azure deployment script
 bash scripts/1-deploy-azure.sh
 ```
 
-The script will:
-- Generate a cryptographically strong admin password
-- Store it securely in Azure Key Vault
-- Deploy Hub + Spokes + VMs (no public IPs) + Bastion + ER Gateway (ErGw1AZ)
-- Create the ExpressRoute Circuit (Megaport / Chicago)
-- Display the **service key** for provisioning via Megaport
+The script runs pre-flight checks (CLI version, auth), then:
+- Generates a strong admin password and stores it in Azure Key Vault
+- Deploys Hub + Spokes + VMs (no public IPs) + Bastion + ER Gateway (ErGw1AZ)
+- Creates the ExpressRoute Circuit
+- Displays the **service key** for provisioning via Megaport
+- Waits for provider provisioning, then creates the ER connection
 
-### Phase 2 — Provision On-Premises (GCP)
+---
+
+### Phase 2 — Provision On-Premises (GCP, common to both scenarios)
 
 ```bash
-# In a GCP Cloud Shell or local terminal with gcloud configured
+# Run from GCP Cloud Shell or a local terminal with gcloud configured
 bash scripts/2-deploy-onprem-gcp.sh
 ```
 
-This script will:
-- Create a GCP VPC and subnet (192.168.0.0/24)
-- Deploy a GCP VM for on-prem simulation
-- Create a Cloud Router and Partner Interconnect attachment
-- Display the **pairing key** to use in Megaport
+This creates a GCP VPC + VM + Cloud Router + Partner Interconnect attachment and outputs the **pairing key** for Megaport.
 
-> **Manual step:** Use the Megaport portal to connect the Azure ER circuit (service key) ↔ GCP Interconnect (pairing key).
+> **Manual step:** Use the Megaport portal to link the Azure ER circuit (service key) and GCP Interconnect (pairing key).
 
-### Phase 3 — Connect ExpressRoute Circuit
+---
 
-Once Megaport has provisioned both sides (ProviderProvisioningState = `Provisioned`):
+### Phase 3 — Test Baseline Connectivity
 
 ```bash
-# Script 1 (continued) will automatically detect provisioning and create the connection
-# Or run manually:
-bash scripts/1-deploy-azure.sh  # Picks up from the wait loop
+bash scripts/5-test-connectivity.sh
 ```
 
-### Phase 4 — Test Baseline Connectivity
+Validates BGP adjacency, learned routes, effective routes on VM NICs, and ICMP from spoke VMs to the GCP on-prem VM. Run this **before and after** the upgrade/migration to compare.
+
+---
+
+### Phase 4A — Scenario 1: In-Place Upgrade
+
+> Recommended for AZ gateways when you want the simplest upgrade path.
+
+**Terminal 1 — Start monitoring (recommended):**
+```bash
+bash scripts/6-monitor-downtime.sh
+```
+
+**Terminal 2 — Run the in-place upgrade:**
+```bash
+bash scripts/3-scenario1-upgrade-ergw.sh
+```
+
+What happens:
+1. Pre-flight validation: SKU eligibility, subnet size, gateway state, connection health
+2. Baseline snapshot captured (routes, connections, SKU)
+3. `az network vnet-gateway update` submits the SKU change to `ErGwScale`
+4. Progress polling every 30 seconds until `Succeeded`
+5. Post-upgrade BGP validation
+
+---
+
+### Phase 4B — Scenario 2: Gateway Migration
+
+> Recommended when you need explicit rollback control or are on a legacy non-AZ SKU.
+
+**Terminal 1 — Start monitoring (recommended):**
+```bash
+bash scripts/6-monitor-downtime.sh
+```
+
+**Terminal 2 — Run the migration:**
+```bash
+bash scripts/4-scenario2-migrate-ergw.sh
+```
+
+What happens:
+| Phase | Action | Duration | Impact |
+|-------|--------|----------|--------|
+| **1. Prepare** | Azure deploys a new ErGwScale gateway alongside the existing one | ~20–40 min | Zero — existing gateway and connections untouched |
+| **2. Execute** | ER connections transferred to the new gateway | ~5–15 min | Brief BGP flap (milliseconds) |
+| **3. Commit** | Old gateway deleted, migration finalised | ~5 min | None |
+| *(alt) Abort* | Rollback to old gateway | ~5–10 min | Brief BGP flap |
+
+The script pauses after Execute to let you run `5-test-connectivity.sh` before committing.
+
+---
+
+### Phase 5 — Post-Upgrade Validation
 
 ```bash
-bash scripts/4-test-connectivity.sh
+bash scripts/5-test-connectivity.sh
 ```
 
-This validates:
-- BGP adjacency on the ER gateway
-- Learned routes from on-prem
-- ICMP and traceroute from spoke VMs → GCP VM
-- Effective routes on VM NICs
-
-### Phase 5 — Monitor and Upgrade the ER Gateway
-
-> Run the monitoring script **before** starting the upgrade to capture any micro-outage.
-
-**Terminal 1 — Start monitoring:**
-```bash
-bash scripts/5-monitor-downtime.sh
-```
-
-**Terminal 2 — Upgrade the gateway:**
-```bash
-bash scripts/3-upgrade-ergw.sh
-```
-
-The upgrade changes the gateway SKU from **ErGw1AZ** → **ErGwScale**. The process:
-1. Azure performs an in-place upgrade (live migration)
-2. Existing connections remain attached
-3. BGP sessions may briefly flap (typically < 1 second)
-4. The new ErGwScale gateway auto-scales based on traffic demand
-
-### Phase 6 — Post-Upgrade Validation
-
-```bash
-bash scripts/4-test-connectivity.sh
-```
-
-Confirming:
+Confirms:
 - Gateway SKU is now `ErGwScale`
-- All BGP sessions are re-established
-- All spoke-to-on-prem routes are still present
-- Connectivity is fully restored
+- All BGP sessions re-established
+- All spoke-to-on-prem routes present
+- Connectivity fully restored
 
-## Retrieving VM Credentials
+---
 
-The admin password is auto-generated and stored in Key Vault:
+### Phase 6 — Cleanup
 
 ```bash
-rg=lab-er-scale
-kvName=$(az keyvault list -g $rg --query '[0].name' -o tsv)
+# Azure resources
+bash scripts/7-cleanup-azure.sh
 
-# Retrieve password
-az keyvault secret show --vault-name $kvName --name admin-password --query value -o tsv
-
-# Retrieve username
-az keyvault secret show --vault-name $kvName --name admin-username --query value -o tsv
+# GCP resources
+bash scripts/8-cleanup-gcp.sh
 ```
+
+---
 
 ## VM Access Methods
 
 ### Azure Bastion (Recommended)
 
-1. Open the [Azure Portal](https://portal.azure.com)
+1. Open [Azure Portal](https://portal.azure.com)
 2. Navigate to the VM → **Connect** → **Bastion**
-3. Enter the credentials retrieved from Key Vault
+3. Use credentials retrieved from Key Vault (see below)
+
+### Retrieve VM Credentials
+
+```bash
+rg=lab-er-scale
+kvName=$(az keyvault list -g $rg --query '[0].name' -o tsv)
+
+az keyvault secret show --vault-name $kvName --name admin-username --query value -o tsv
+az keyvault secret show --vault-name $kvName --name admin-password --query value -o tsv
+```
 
 ### Azure Serial Console
 
-1. Open the [Azure Portal](https://portal.azure.com)
-2. Navigate to the VM → **Help** → **Serial Console**
-3. No network connectivity required — works even if Bastion is unavailable
+Available in the Azure Portal under VM → **Help** → **Serial Console**. No network connectivity required.
+
+---
 
 ## IP Addressing Reference
 
@@ -398,7 +355,7 @@ az keyvault secret show --vault-name $kvName --name admin-username --query value
 |---------|------|-------|
 | Hub VNet | 10.0.0.0/24 | Hub network |
 | subnet1 | 10.0.0.0/27 | Hub VMs |
-| GatewaySubnet | 10.0.0.64/26 | ExpressRoute Gateway (**min /26 required for ErGwScale**) |
+| GatewaySubnet | 10.0.0.64/26 | ExpressRoute Gateway (**min /26 for ErGwScale**) |
 | AzureBastionSubnet | 10.0.0.192/26 | Azure Bastion |
 | Spoke1 VNet | 10.0.1.0/24 | Spoke 1 |
 | Spoke1/subnet1 | 10.0.1.0/27 | Spoke 1 VMs |
@@ -406,67 +363,60 @@ az keyvault secret show --vault-name $kvName --name admin-username --query value
 | Spoke2/subnet1 | 10.0.2.0/27 | Spoke 2 VMs |
 | On-Premises (GCP) | 192.168.0.0/24 | Simulated on-prem |
 
-## ExpressRoute Gateway SKU Comparison
+---
 
-| SKU | Max Throughput | Zone Redundant | Scalable |
-|-----|---------------|----------------|---------|
-| ErGw1AZ | 1 Gbps | ✅ | ❌ |
-| ErGw2AZ | 2 Gbps | ✅ | ❌ |
-| ErGw3AZ | 10 Gbps | ✅ | ❌ |
-| **ErGwScale** | **Auto-scale** | ✅ | ✅ |
+## Shared Validation Library
 
-## Cleanup
+All scripts source `scripts/lib/validate.sh`, which provides reusable pre-flight checks:
 
-Dedicated cleanup scripts handle teardown of each environment with confirmation prompts to prevent accidental deletion.
+| Function | What it checks |
+|----------|----------------|
+| `validate_tools` | Required binaries (az, python3, jq) |
+| `validate_azure_cli_version` | Azure CLI ≥ specified version |
+| `validate_bicep_version` | Bicep CLI ≥ specified version |
+| `validate_azure_auth` | Active `az login` session; exports subscription vars |
+| `validate_resource_group` | Resource group exists |
+| `validate_gateway_exists` | Gateway resource found |
+| `validate_gateway_state` | provisioningState == Succeeded |
+| `validate_gateway_sku_for_inplace_upgrade` | SKU is ErGw1AZ/2AZ/3AZ (Scenario 1) |
+| `validate_gateway_sku_for_migration` | SKU is any non-ErGwScale (Scenario 2) |
+| `validate_gateway_subnet_size` | GatewaySubnet is /26 or larger |
+| `validate_er_circuit_state` | Circuit is Enabled + provider Provisioned |
+| `validate_er_connections` | Lists ER connections and their states |
+| `validate_no_active_migration` | No migration already in progress |
 
-### Azure Cleanup
+---
 
-```bash
-bash scripts/6-cleanup-azure.sh
-```
+## Upgrade/Migration Considerations
 
-This script:
-- Prompts for the resource group name and region (defaults: `lab-er-scale` / `westus3`)
-- Requires you to **type the resource group name** to confirm before deleting
-- Deletes the entire resource group and all resources inside it (`--no-wait`)
-- Optionally **purges the Key Vault** — Key Vault has soft-delete enabled (7-day retention by default). You will be prompted whether to purge it immediately.
+| Scenario | Disruptive? | Notes |
+|----------|-------------|-------|
+| ErGw1AZ / 2AZ / 3AZ → **ErGwScale** (in-place) | **No** | Script 3. In-place live migration. |
+| ErGw1AZ / 2AZ / 3AZ → **ErGwScale** (migration) | **Near-zero** | Script 4. 3-phase with rollback option. |
+| **ErGwScale** → lower AZ SKU (downgrade) | **Yes** | Not supported in-place; gateway must be deleted and recreated. |
+| Non-AZ SKU (Standard / HighPerf / UltraPerf) → ErGwScale | **Migration required** | Use Script 4 (Scenario 2) only. |
 
-> To purge the Key Vault manually later:
-> ```bash
-> az keyvault purge --name <kv-name> --location westus3
-> ```
+> **GatewaySubnet size — /26 required:** ErGwScale needs the `GatewaySubnet` to be at least **/26**. A /27 blocks the upgrade. If your subnet is /27, resize it first.
 
-### GCP Cleanup
-
-```bash
-bash scripts/7-cleanup-gcp.sh
-```
-
-This script:
-- Verifies gcloud authentication and auto-detects the active project
-- Requires you to type **`yes`** to confirm before deleting
-- Removes resources in the correct dependency order:
-  1. Interconnect attachment (`lab-erscale-vlan`)
-  2. Cloud Router (`lab-erscale-router`)
-  3. VM instance (`lab-erscale-vm1`)
-  4. Firewall rule (`lab-erscale-allow-azure`)
-  5. Subnet (`lab-erscale-subnet`)
-  6. VPC network (`lab-erscale-vpc`)
-- Each step is **idempotent** — skips resources that no longer exist
+---
 
 ## References
 
-- [Azure ExpressRoute Gateway Scalable SKU](https://learn.microsoft.com/azure/expressroute/expressroute-about-virtual-network-gateways#scalable-gateway)
-- [Upgrade an ExpressRoute Gateway](https://learn.microsoft.com/azure/expressroute/expressroute-howto-upgrade-expressroute-gateway)
-- [Azure Bastion — Connect to VM](https://learn.microsoft.com/azure/bastion/bastion-connect-vm-ssh-linux)
-- [Azure Serial Console](https://learn.microsoft.com/troubleshoot/azure/virtual-machines/serial-console-linux)
-- [Megaport Azure ExpressRoute](https://docs.megaport.com/cloud/microsoft-azure/azure-expressroute/)
-- [GCP Partner Interconnect](https://cloud.google.com/network-connectivity/docs/interconnect/concepts/partner-overview)
+- 📄 [Scalable ExpressRoute Gateway (ErGwScale) overview](https://learn.microsoft.com/azure/expressroute/expressroute-about-virtual-network-gateways#scalable-gateway)
+- 📄 [Upgrade an ExpressRoute Gateway to ErGwScale](https://learn.microsoft.com/azure/expressroute/expressroute-howto-upgrade-expressroute-gateway)
+- 📄 [Migrate an ExpressRoute virtual network gateway](https://learn.microsoft.com/azure/expressroute/expressroute-howto-gateway-migration-portal)
+- 📄 [Configure FastPath for ExpressRoute](https://learn.microsoft.com/azure/expressroute/expressroute-howto-linkvnet-arm#configure-expressroute-fastpath)
+- 📄 [Azure Bastion — Connect to VM](https://learn.microsoft.com/azure/bastion/bastion-connect-vm-ssh-linux)
+- 📄 [Megaport Azure ExpressRoute](https://docs.megaport.com/cloud/microsoft-azure/azure-expressroute/)
+- 📄 [GCP Partner Interconnect](https://cloud.google.com/network-connectivity/docs/interconnect/concepts/partner-overview)
+
+---
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or pull request. For major changes, open an issue first to discuss the proposed change.
+Contributions are welcome! Please open an issue or pull request. For major changes, open an issue first to discuss.
 
 ## License
 
 This project is licensed under the MIT License — see the [LICENSE](./LICENSE) file for details.
+

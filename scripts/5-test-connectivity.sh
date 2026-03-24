@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Script 4 — Test Connectivity and Validate ExpressRoute Paths
+# Script 5 — Test Connectivity and Validate ExpressRoute Paths
 # =============================================================================
-# Usage: bash scripts/4-test-connectivity.sh
+# Usage: bash scripts/5-test-connectivity.sh
 #
-# This script validates:
+# This script is COMMON to both upgrade scenarios and can be run:
+#   BEFORE the upgrade/migration  — to capture a baseline
+#   AFTER  the upgrade/migration  — to confirm full restoration
+#
+# What this script validates:
 #   1. ExpressRoute Gateway BGP peers and learned routes
 #   2. Effective routes on all VM NICs (hub, spoke1, spoke2)
 #   3. ICMP (ping) from spoke VMs to the on-premises GCP VM
 #   4. Traceroute from spoke VMs to verify ER path
 #   5. Spoke-to-spoke connectivity via hub gateway
+#   6. Current gateway SKU (confirms Scenario 1 or 2 completion)
 #
 # Set ONPREM_IP to the GCP VM's internal IP before running.
 # =============================================================================
@@ -147,4 +152,5 @@ az network vnet-gateway show \
 echo ""
 echo "============================================================"
 echo "  CONNECTIVITY TEST COMPLETE — $(date '+%Y-%m-%d %H:%M:%S')"
+echo "  Script: 5-test-connectivity.sh (works for both scenarios)"
 echo "============================================================"

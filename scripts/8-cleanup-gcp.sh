@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Script 7 — Cleanup GCP Resources
+# Script 8 — Cleanup GCP Resources
 # =============================================================================
-# Usage: bash scripts/7-cleanup-gcp.sh
+# Usage: bash scripts/8-cleanup-gcp.sh
 #
-# This script removes all GCP resources created by script 2:
+# This script is COMMON to both upgrade scenarios.
+# Run after completing either Scenario 1 or Scenario 2 to tear down all
+# GCP resources created by script 2 (2-deploy-onprem-gcp.sh):
 #   - Interconnect attachment (VLAN)
 #   - Cloud Router
 #   - VM instance

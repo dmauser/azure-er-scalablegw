@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Script 6 — Cleanup Azure Resources
+# Script 7 — Cleanup Azure Resources
 # =============================================================================
-# Usage: bash scripts/6-cleanup-azure.sh
+# Usage: bash scripts/7-cleanup-azure.sh
 #
-# This script removes all Azure resources created by script 1:
+# This script is COMMON to both upgrade scenarios.
+# Run after completing either Scenario 1 or Scenario 2 to tear down all
+# Azure resources created by script 1 (1-deploy-azure.sh).
 #   - The entire resource group (VNets, VMs, Bastion, ER Gateway, ER Circuit,
 #     ER Connection, Key Vault, etc.)
 #   - Optionally purges the Key Vault (soft-delete, 7-day retention by default)
