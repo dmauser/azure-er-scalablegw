@@ -60,9 +60,19 @@ The **Scalable ExpressRoute Gateway** (SKU: `ErGwScale`) is the next-generation 
 
 ## Architecture
 
-![Architecture Diagram](diagrams/architecture.svg)
+### Scenario 1 — Lab Topology & In-Place SKU Upgrade
 
-> 📐 [Open and edit in Excalidraw](https://excalidraw.com/#url=https://raw.githubusercontent.com/dmauser/azure-er-scalablegw/main/diagrams/architecture.excalidraw)
+> 📐 [Open in Excalidraw](https://excalidraw.com/#url=https://raw.githubusercontent.com/dmauser/azure-er-scalablegw/main/diagrams/scenario1-architecture.excalidraw)
+
+![Scenario 1 Architecture](diagrams/scenario1-architecture.svg)
+
+### Scenario 2 — Gateway Migration Flow (3-Phase)
+
+> 📐 [Open in Excalidraw](https://excalidraw.com/#url=https://raw.githubusercontent.com/dmauser/azure-er-scalablegw/main/diagrams/scenario2-architecture.excalidraw)
+
+![Scenario 2 Architecture](diagrams/scenario2-architecture.svg)
+
+---
 
 ### Scenario 1 Flow — In-Place Upgrade
 
@@ -79,15 +89,20 @@ The **Scalable ExpressRoute Gateway** (SKU: `ErGwScale`) is the next-generation 
 ### Scenario 2 Flow — Gateway Migration
 
 ```
-Phase 1 PREPARE    Phase 2 EXECUTE   Phase 3 COMMIT
-──────────────     ───────────────   ──────────────
-┌──────────┐        ┌──────────┐      ┌──────────┐
-│ ErGw1AZ  │  ──►  │ErGwScale │ ──►  │ErGwScale │
-│ (old GW) │        │(new GW)  │      │(only GW) │
-│[running] │        │[running] │      │          │
-└──────────┘        └──────────┘      └──────────┘
-  Connections on      Transfer conns    Old GW removed
-  old GW             (brief BGP flap)
+  Phase 1 PREPARE      Phase 2 EXECUTE       Phase 3: COMMIT or ABORT
+  ───────────────      ───────────────       ────────────────────────
+  ┌─────────────┐      ┌─────────────┐
+  │ ErGw1AZ     │      │ ErGw1AZ     │  OK ──► ┌──────────────────┐
+  │ (original)  │      │ (fading...) │          │  ③ COMMIT  ✅    │
+  │ Active ✓    │ ──►  │             │          │  ErGwScale: sole │
+  │             │      │ ErGwScale   │          │  Old gw: deleted │
+  │ ErGwScale   │      │ (active) ✓  │          └──────────────────┘
+  │ (new, prvs) │      └─────────────┘
+  └─────────────┘      connections          ↩ ──► ┌──────────────────┐
+  No traffic impact    transferred                 │  ③ ABORT   ↩    │
+  ~20-40 min           (brief BGP flap)            │  ErGw1AZ: back  │
+                        ~5-15 min                  │  New gw: gone   │
+                                                   └──────────────────┘
 ```
 
 ---
@@ -121,7 +136,11 @@ azure-er-scalablegw/
 │   ├── 7-cleanup-azure.sh          # [COMMON] Delete all Azure resources
 │   └── 8-cleanup-gcp.sh            # [COMMON] Delete all GCP resources
 └── diagrams/
-    └── architecture.excalidraw
+    ├── architecture.excalidraw            # Combined source diagram (both scenarios)
+    ├── scenario1-architecture.excalidraw  # Scenario 1: lab topology + in-place upgrade
+    ├── scenario1-architecture.svg         # Scenario 1 rendered diagram (GitHub-renderable)
+    ├── scenario2-architecture.excalidraw  # Scenario 2: 3-phase migration flow
+    └── scenario2-architecture.svg         # Scenario 2 rendered diagram (GitHub-renderable)
 ```
 
 ---
